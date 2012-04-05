@@ -1,0 +1,17 @@
+Prerequisites
+-------------
+
+required:
+
+* libpq from Postgresql and header files
+
+optionally:
+
+* gengetopt 2.22.x: a commmand line argument generator,
+  generates pgfuse_cmdline.h and pgfuse_cmdline.c
+  (just needed, if you change pgfuse.ggo)
+  
+Compilation
+-----------
+
+make should do the trick. :-)

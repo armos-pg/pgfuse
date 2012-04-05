@@ -1,0 +1,23 @@
+package "pgfuse"
+version "0.0.1"
+usage "pgfuse [options] <mount point>"
+description "User land filesystem using a Postgresql database\n"
+
+section "Main Options"
+	option "ro" r
+		"Do not allow write operations, only read operations"
+		optional
+		
+	option "debug" d
+		"Increase debug level (option can be given many times)"
+		optional multiple
+		
+	option "test" t
+		"Test the configuration without running pgfuse"
+		optional
+
+	option "config-file" c
+		"An optional configuration file to be read by pgfuse"
+                string typestr="file"
+                optional
+
