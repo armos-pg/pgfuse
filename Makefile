@@ -1,6 +1,15 @@
 all: pgfuse
 
-CFLAGS = -Wall -g `pkg-config fuse --cflags`
+# for debugging
+CFLAGS = -Wall -Wextra -pedantic -g
+# for releasing
+CFLAGS = -Wall
+
+# declare version of FUSE API we want to program against
+CFLAGS += -DFUSE_USE_VERSION=26
+
+# use pkg-config to detemine compiler/linker flags for libfuse
+CFLAGS += `pkg-config fuse --cflags`
 LDFLAGS = `pkg-config fuse --libs`
 
 clean:

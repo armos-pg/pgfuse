@@ -18,6 +18,7 @@
 #include <unistd.h>		/* for exit */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
 #include <stdio.h>		/* for fprintf */
+#include <string.h>		/* for strdup */
 
 #include "pgfuse_cmdline.h"	/* for command line and option parsing (gengetopt) */
 
