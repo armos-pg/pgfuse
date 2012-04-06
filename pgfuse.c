@@ -21,6 +21,7 @@
 #include <stdio.h>		/* for fprintf */
 #include <stddef.h>		/* for offsetof */
 #include <libgen.h>		/* for basename */
+#include <syslog.h>		/* for openlog, syslog */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -28,6 +29,23 @@
 #include <libpq-fe.h>		/* for Postgresql database access */
 
 /* --- fuse callbacks --- */
+
+typedef struct PgFuseData {
+	PGconn *conn;
+} PgFuseData;
+
+void *pgfuse_init( struct fuse_conn_info *conn )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	syslog( LOG_INFO, "Mounting pgfuse file system" );
+	return data;
+}
+
+void pgfuse_destroy( void *userdata )
+{
+	syslog( LOG_INFO, "Unmounting pgfuse file system" );
+	PgFuseData *data = (PgFuseData *)userdata;
+}
 
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= NULL,
@@ -55,8 +73,8 @@ static struct fuse_operations pgfuse_oper = {
 	.opendir	= NULL,
 	.readdir	= NULL,
 	.fsyncdir	= NULL,
-	.init		= NULL,
-	.destroy	= NULL,
+	.init		= pgfuse_init,
+	.destroy	= pgfuse_destroy,
 	.access		= NULL,
 	.create		= NULL,
 	.ftruncate	= NULL,
@@ -196,8 +214,20 @@ int main( int argc, char *argv[] )
 		fprintf( stderr, "see '%s -h' for usage\n", basename( argv[0] ) );
 		exit( EXIT_FAILURE );
 	}
-		
+	
+	conn = PQconnectdb( pgfuse.conninfo );
+	if( PQstatus( conn ) != CONNECTION_OK ) {
+		fprintf( stderr, "Connection to database failed: %s",
+			PQerrorMessage( conn ) );
+		PQfinish( conn );
+		exit( EXIT_FAILURE );
+	}
+	
+	openlog( basename( argv[0] ), LOG_PID, LOG_USER );
+	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, NULL );
 
+	PQfinish( conn );
+	
 	exit( res );
 }

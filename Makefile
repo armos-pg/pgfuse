@@ -15,6 +15,12 @@ LDFLAGS = `pkg-config fuse --libs` -lpq
 clean:
 	rm -f pgfuse pgfuse.o
 
+test: pgfuse
+	-./pgfuse "" mnt
+	mount | grep pgfuse
+	-ls mnt
+	fusermount -u mnt
+	
 pgfuse: pgfuse.o
 	gcc -o pgfuse $(LDFLAGS) pgfuse.o
 
