@@ -25,6 +25,8 @@
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
 
+#include <libpq-fe.h>		/* for Postgresql database access */
+
 /* --- fuse callbacks --- */
 
 static struct fuse_operations pgfuse_oper = {
@@ -107,10 +109,13 @@ static int pgfuse_opt_proc( void* data, const char* arg, int key,
 			if( pgfuse.conninfo == NULL ) {
 				pgfuse.conninfo = strdup( arg );
 				return 0;
-			} else {
+			} else if( pgfuse.mountpoint == NULL ) {
 				pgfuse.mountpoint = strdup( arg );
+				return 1;
+			} else {
+				fprintf( stderr, "%s, only two arguments allowed: Postgresql connection data and mountpoint\n", basename( outargs->argv[0] ) );
+				return -1;
 			}
-			return 1;
 			
 		case KEY_HELP:
 			pgfuse.print_help = 1;
@@ -164,6 +169,7 @@ static void print_usage( char* progname )
 int main( int argc, char *argv[] )
 {		
 	int res;
+	PGconn *conn;
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
@@ -176,18 +182,22 @@ int main( int argc, char *argv[] )
 			argv[1] = "-ho";
 			argv[2] = "mountpoint";
 			fuse_main( 2, argv, &pgfuse_oper, NULL);
-			return EXIT_SUCCESS;
+			exit( EXIT_SUCCESS );
 		}
 		if( pgfuse.print_version ) {
 			fprintf( stderr, "0.0.1\n" );
-			return EXIT_SUCCESS;
+			exit( EXIT_SUCCESS );
 		}
-		return EXIT_FAILURE;
+		exit( EXIT_FAILURE );
+	}
+	
+	if( pgfuse.conninfo == NULL ) {
+		fprintf( stderr, "Missing Postgresql connection data\n" );
+		fprintf( stderr, "see '%s -h' for usage\n", basename( argv[0] ) );
+		exit( EXIT_FAILURE );
 	}
 		
-	return EXIT_SUCCESS;
-
-	res = fuse_main( argc, argv, &pgfuse_oper, NULL );
+	res = fuse_main( args.argc, args.argv, &pgfuse_oper, NULL );
 
 	exit( res );
 }

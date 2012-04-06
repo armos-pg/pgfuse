@@ -10,7 +10,7 @@ CFLAGS += -DFUSE_USE_VERSION=26
 
 # use pkg-config to detemine compiler/linker flags for libfuse
 CFLAGS += `pkg-config fuse --cflags`
-LDFLAGS = `pkg-config fuse --libs`
+LDFLAGS = `pkg-config fuse --libs` -lpq
 
 clean:
 	rm -f pgfuse pgfuse.o
