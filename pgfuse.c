@@ -15,12 +15,12 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <string.h>		/* for strdup, memset */
+#include <libgen.h>		/* for POSIX compliant basename */
 #include <unistd.h>		/* for exit */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
-#include <string.h>		/* for strdup, memset */
 #include <stdio.h>		/* for fprintf */
 #include <stddef.h>		/* for offsetof */
-#include <libgen.h>		/* for basename */
 #include <syslog.h>		/* for openlog, syslog */
 #include <errno.h>		/* for ENOENT and friends */
 #include <sys/types.h>
@@ -62,9 +62,45 @@ static void pgfuse_destroy( void *userdata )
 	}
 }
 
+static int psql_get_id( PGconn *conn, const char *path )
+{
+	PGresult *res;
+	int i_fnum;
+	char *iptr;
+	int id;
+	
+	const char *values[1] = { path };
+	int lengths[1] = { strlen( path ) };
+	int binary[1] = { 1 };
+	
+	res = PQexecParams( conn, "SELECT id FROM dir WHERE path = $1::varchar",
+		1, NULL, values, lengths, binary, 1 );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_get_id for path '%s'", path );
+		return -EIO;
+	}
+	
+	if( PQntuples( res ) == 0 ) {
+		return -ENOENT;
+	}
+	
+	if( PQntuples( res ) > 1 ) {
+		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_id, data inconsistent!", path );
+		return -EIO;
+	}
+	
+	i_fnum = PQfnumber( res, "id" );
+	iptr = PQgetvalue( res, 0, i_fnum );
+	id = ntohl( *( (uint32_t *)iptr ) );
+	
+	return id;
+}
+
 static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
@@ -77,14 +113,21 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
 		return 0;
-	} else if( strcmp( path, "/README" ) == 0 ) {
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen( "This is a PgFuse mount point" );
-		return 0;
-	} else {
-		return -ENOENT;
 	}
+	
+	id = psql_get_id( data->conn, path );
+	if( id < 0 ) {
+		return id;
+	}
+
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id for  dir '%s' is %d", path, id );
+	}
+	
+	stbuf->st_mode = S_IFDIR | 0755;
+	stbuf->st_nlink = 2;
+	
+	return 0;
 }
 
 static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
@@ -98,7 +141,6 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
-	filler( buf, "README", NULL, 0 );
 	
 	return 0;
 }
@@ -140,7 +182,7 @@ static int psql_create_dir( PGconn *conn, const int parent_id, const char *path,
 	const char *values[3] = { (char *)&param1, new_dir, path };
 	int lengths[3] = { sizeof( parent_id), strlen( new_dir ), strlen( path ) };
 	int binary[3] = { 1, 0, 0 };
-	int res;
+	PGresult *res;
 	
 	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path ) VALUES ($1::int4, $2::varchar, $3::varchar)",
 		3, NULL, values, lengths, binary, 1 );
@@ -156,6 +198,7 @@ static int psql_create_dir( PGconn *conn, const int parent_id, const char *path,
 static int pgfuse_mkdir( const char *path, mode_t mode )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	char *copy_path;
 	char *parent_path;
 	char *new_dir;
 	int parent_id;
@@ -165,15 +208,15 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o'", path, (unsigned int)mode );
 	}
 	
-	parent_path = strdup( path );
-	if( parent_path == NULL ) {
+	copy_path = strdup( path );
+	if( copy_path == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
 		return -EIO;
 	}
 	
-	dirname( parent_path );
+	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_parent_id( data->conn, parent_path );
+	parent_id = psql_get_id( data->conn, parent_path );
 	if( parent_id < 0 ) {
 		return parent_id;
 	}
@@ -182,19 +225,20 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %d", path, parent_id );
 	}
 	
-	new_dir = strdup( path );
-	if( new_dir == NULL ) {
+	free( copy_path );
+	copy_path = strdup( path );
+	if( copy_path == NULL ) {
 		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
 		return -EIO;
 	}
 	
-	basename( new_dir );
+	new_dir = basename( copy_path );
+	syslog( LOG_INFO, "path %s, parent_path %s, new_dir %s", path, parent_path, new_dir );
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
 
-	free( new_dir );
-	free( parent_path );
+	free( copy_path );
 	
 	return res;
 }
