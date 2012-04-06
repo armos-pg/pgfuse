@@ -22,6 +22,7 @@
 #include <stddef.h>		/* for offsetof */
 #include <libgen.h>		/* for basename */
 #include <syslog.h>		/* for openlog, syslog */
+#include <errno.h>		/* for ENOENT and friends */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -31,24 +32,52 @@
 /* --- fuse callbacks --- */
 
 typedef struct PgFuseData {
+	char *conninfo;
+	char *mountpoint;
 	PGconn *conn;
 } PgFuseData;
 
-void *pgfuse_init( struct fuse_conn_info *conn )
+static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	syslog( LOG_INFO, "Mounting pgfuse file system" );
+	syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
+		data->mountpoint, data->conninfo );
 	return data;
 }
 
-void pgfuse_destroy( void *userdata )
+static void pgfuse_destroy( void *userdata )
 {
-	syslog( LOG_INFO, "Unmounting pgfuse file system" );
-	PgFuseData *data = (PgFuseData *)userdata;
+	PgFuseData *data = (PgFuseData *)userdata;	
+	syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
+		data->mountpoint, data->conninfo );
+}
+
+static int pgfuse_getattr( const char *path, struct stat *stbuf )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
+	
+	memset( stbuf, 0, sizeof( struct stat ) );
+	
+	if( strcmp( path, "/" ) == 0 ) {
+		/* show contents of the root path */
+		stbuf->st_mode = S_IFDIR | 0755;
+		stbuf->st_nlink = 2;
+		return 0;
+	} else {
+		return -ENOENT;
+	}
+}
+
+static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
+                           off_t offset, struct fuse_file_info *fi )
+{
+	syslog( LOG_INFO, "Readdir '%s'", path );
+	return 0;
 }
 
 static struct fuse_operations pgfuse_oper = {
-	.getattr	= NULL,
+	.getattr	= pgfuse_getattr,
 	.readlink	= NULL,
 	.mknod		= NULL,
 	.mkdir		= NULL,
@@ -71,7 +100,7 @@ static struct fuse_operations pgfuse_oper = {
 	.listxattr	= NULL,
 	.removexattr	= NULL,
 	.opendir	= NULL,
-	.readdir	= NULL,
+	.readdir	= pgfuse_readdir,
 	.fsyncdir	= NULL,
 	.init		= pgfuse_init,
 	.destroy	= pgfuse_destroy,
@@ -88,16 +117,18 @@ static struct fuse_operations pgfuse_oper = {
 
 /* --- parse arguments --- */
 
-struct pgfuse {
+typedef struct PgFuse {
 	int print_help;		/* whether we should print a help page */
 	int print_version;	/* whether we should print the version */
 	int verbose;		/* whether we should be verbose */
 	char *conninfo;		/* connection info as used in PQconnectdb */
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	int read_only;		/* whether to mount read-only */
-} pgfuse;
+} PgFuse;
 
-#define PGFUSE_OPT( t, p, v ) { t, offsetof( struct pgfuse, p ), v }
+static PgFuse pgfuse;
+
+#define PGFUSE_OPT( t, p, v ) { t, offsetof( struct PgFuse, p ), v }
 
 enum {
 	KEY_HELP,
@@ -189,6 +220,7 @@ int main( int argc, char *argv[] )
 	int res;
 	PGconn *conn;
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
+	PgFuseData userdata;
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
 	
@@ -225,7 +257,11 @@ int main( int argc, char *argv[] )
 	
 	openlog( basename( argv[0] ), LOG_PID, LOG_USER );
 	
-	res = fuse_main( args.argc, args.argv, &pgfuse_oper, NULL );
+	userdata.conninfo = pgfuse.conninfo;
+	userdata.conn = conn;
+	userdata.mountpoint = pgfuse.mountpoint;
+	
+	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
 
 	PQfinish( conn );
 	
