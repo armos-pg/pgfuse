@@ -17,73 +17,161 @@
 
 #include <unistd.h>		/* for exit */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
-#include <stdio.h>		/* for fprintf */
 #include <string.h>		/* for strdup */
+#include <stdio.h>		/* for fprintf */
+#include <stddef.h>		/* for offsetof */
+#include <libgen.h>		/* for basename */
 
-#include "pgfuse_cmdline.h"	/* for command line and option parsing (gengetopt) */
+#include <fuse.h>		/* for user-land filesystem */
+#include <fuse_opt.h>		/* fuse command line parser */
 
-static int parse_options_and_arguments( int argc, char *argv[], struct gengetopt_args_info *args_info ) {
-	struct cmdline_parser_params params;
+/* --- parse arguments --- */
 
-	cmdline_parser_params_init( &params );
-	params.override = 1;
-	params.initialize = 0;
-	params.check_required = 1;
+struct pgfuse {
+	int print_help;		/* whether we should print a help page */
+	int print_version;	/* whether we should print the version */
+	int verbose;		/* whether we should be verbose */
+	char *host;		/* host running the Postgresql database */
+	char *mountpoint;	/* where we mount the virtual filesystem */
+} pgfuse;
 
-        cmdline_parser_init( args_info );
+#define PGFUSE_OPT( t, p, v ) { t, offsetof( struct pgfuse, p ), v }
 
-        if( cmdline_parser_ext( argc, argv, args_info, &params ) != 0 ) {
-        	cmdline_parser_free( args_info );
-        	return EXIT_FAILURE;
-        }
+enum {
+	KEY_HELP,
+	KEY_VERBOSE,
+	KEY_VERSION
+};
 
-        return EXIT_SUCCESS;
+static struct fuse_opt pgfuse_opts[] = {
+	PGFUSE_OPT( "host=%s",		host, 0 ),
+	FUSE_OPT_KEY( "-h",		KEY_HELP ),
+	FUSE_OPT_KEY( "--help",		KEY_HELP ),
+	FUSE_OPT_KEY( "-v",		KEY_VERBOSE ),
+	FUSE_OPT_KEY( "--verbose",	KEY_VERBOSE ),
+	FUSE_OPT_KEY( "-V",		KEY_VERSION ),
+	FUSE_OPT_KEY( "--version",	KEY_VERSION ),
+	FUSE_OPT_END
+};
+
+static int pgfuse_opt_proc( void* data, const char* arg, int key,
+                            struct fuse_args* outargs )
+{                            
+	switch( key ) {
+		case FUSE_OPT_KEY_OPT:
+			return 1;
+		
+		case FUSE_OPT_KEY_NONOPT:
+			/* TODO: check arg */
+			pgfuse.mountpoint = strdup( arg );
+			return 1;
+			
+		case KEY_HELP:
+			pgfuse.print_help = 1;
+			return -1;
+		
+		case KEY_VERBOSE:
+			pgfuse.verbose = 1;
+			return 0;
+			
+		case KEY_VERSION:
+			pgfuse.print_version = 1;
+			return -1;
+		
+		default:
+			return -1;
+	}
 }
-
-static int test_config( const char *filename ) {
-	return EXIT_SUCCESS;
+	
+static void print_usage( char* progname )
+{
+	printf(
+		"usage: %s <database connector URL> <mountpoint>\n"
+		"\n"
+		"Options:\n"
+		"    -o opt,[opt...]        pgfuse options\n"
+		"    -v   --verbose         make libcurl print verbose debug\n"
+		"    -h   --help            print help\n"
+		"    -V   --version         print version\n"
+		"\n"
+		"PgFuse options:\n"
+		"    read_only           mount filesystem read-only, do not change data in database\n",
+		progname
+	);
 }
-
-static int read_config( const char *filename, struct gengetopt_args_info *args_info ) {
-	char *config_filename = strdup( filename );
-	struct cmdline_parser_params params;
-
-	cmdline_parser_params_init( &params );
-	params.override = 0;
-	params.initialize = 0;
-	params.check_required = 1;
-
-	if( cmdline_parser_config_file( config_filename, args_info, &params ) != 0 ) {
-		fprintf( stdout, "\n%s\n", gengetopt_args_info_usage );
-		cmdline_parser_free( args_info );
-		free( config_filename );
+		
+static int parse_args( int argc, char *argv[] )
+{
+	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
+	if( fuse_opt_parse( &args, &pgfuse, pgfuse_opts, pgfuse_opt_proc ) == -1 ) {
+		if( pgfuse.print_help ) {
+			print_usage( basename( argv[0] ) );
+			return EXIT_SUCCESS;
+		}
+		if( pgfuse.print_version ) {
+			fprintf( stderr, "0.0.1\n" );
+			return EXIT_SUCCESS;
+		}
 		return EXIT_FAILURE;
 	}
-	free( config_filename );
-	
+
+	if( pgfuse.host == NULL ) {
+		fprintf( stderr, "missing host of Postgresql database\n" );
+		fprintf( stderr, "see '%s -h' for usage\n", argv[0] );
+		return EXIT_FAILURE;
+	}
+		
 	return EXIT_SUCCESS;
 }
 
-int main( int argc, char *argv[] )
-{
-	struct gengetopt_args_info args_info;
-	
-	if( parse_options_and_arguments( argc, argv, &args_info ) == EXIT_FAILURE ) {
-		exit( EXIT_FAILURE );
-	}
+/* --- fuse callbacks --- */
 
-	if( args_info.config_file_given ) {
-		if( read_config(  args_info.config_file_arg, &args_info ) == EXIT_FAILURE ) {
-			exit( EXIT_FAILURE );
-		}
-	}
+struct fuse_operations pgfuse_oper = {
+	.getattr	= NULL,
+	.readlink	= NULL,
+	.mknod		= NULL,
+	.mkdir		= NULL,
+	.unlink		= NULL,
+	.rmdir		= NULL,
+	.symlink	= NULL,
+	.rename		= NULL,
+	.link		= NULL,
+	.chmod		= NULL,
+	.chown		= NULL,
+	.utime		= NULL,
+	.open		= NULL,
+	.read		= NULL,
+	.write		= NULL,
+	.statfs		= NULL,
+	.flush		= NULL,
+	.release	= NULL,
+	.fsync		= NULL,
+	.setxattr	= NULL,
+	.listxattr	= NULL,
+	.removexattr	= NULL,
+	.opendir	= NULL,
+	.readdir	= NULL,
+	.fsyncdir	= NULL,
+	.init		= NULL,
+	.destroy	= NULL,
+	.access		= NULL,
+	.create		= NULL,
+	.ftruncate	= NULL,
+	.fgetattr	= NULL,
+	.lock		= NULL,
+	.utimens	= NULL,
+	.bmap		= NULL,
+	.ioctl		= NULL,
+	.poll		= NULL
+};
+
+/* --- main --- */
+
+int main( int argc, char *argv[] )
+{		
+	int res;
 	
-	if( args_info.test_given ) {
-		cmdline_parser_free( &args_info );
-		exit( test_config( args_info.config_file_arg ) );
-	}
+	res = parse_args( argc, argv );
 	
-	cmdline_parser_free( &args_info );
-	
-	exit( EXIT_SUCCESS );
+	exit( res );
 }
