@@ -23,6 +23,9 @@
 #include <libgen.h>		/* for basename */
 #include <syslog.h>		/* for openlog, syslog */
 #include <errno.h>		/* for ENOENT and friends */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <arpa/inet.h>		/* for htonl, ntohl */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -32,30 +35,40 @@
 /* --- fuse callbacks --- */
 
 typedef struct PgFuseData {
-	char *conninfo;
-	char *mountpoint;
-	PGconn *conn;
+	int verbose;		/* whether we should be verbose */
+	char *conninfo;		/* connection info as used in PQconnectdb */
+	char *mountpoint;	/* where we mount the virtual filesystem */
+	PGconn *conn;		/* the database handle to operate on */
 } PgFuseData;
 
 static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
-		data->mountpoint, data->conninfo );
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
+			data->mountpoint, data->conninfo );
+	}
+	
 	return data;
 }
 
 static void pgfuse_destroy( void *userdata )
 {
-	PgFuseData *data = (PgFuseData *)userdata;	
-	syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
-		data->mountpoint, data->conninfo );
+	PgFuseData *data = (PgFuseData *)userdata;
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
+			data->mountpoint, data->conninfo );
+	}
 }
 
 static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
+	}
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 	
@@ -63,6 +76,11 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 		/* show contents of the root path */
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
+		return 0;
+	} else if( strcmp( path, "/README" ) == 0 ) {
+		stbuf->st_mode = S_IFREG | 0444;
+		stbuf->st_nlink = 1;
+		stbuf->st_size = strlen( "This is a PgFuse mount point" );
 		return 0;
 	} else {
 		return -ENOENT;
@@ -72,7 +90,80 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
                            off_t offset, struct fuse_file_info *fi )
 {
-	syslog( LOG_INFO, "Readdir '%s'", path );
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Readdir '%s'", path );
+	}
+	
+	filler( buf, ".", NULL, 0 );
+	filler( buf, "..", NULL, 0 );
+	filler( buf, "README", NULL, 0 );
+	
+	return 0;
+}
+
+static int psql_get_parent_id( PGconn *conn, const char *path )
+{
+	PGresult *res;
+	int i_fnum;
+	char *iptr;
+	int parent_id;
+	
+	const char *values[1] = { path };
+	int lengths[1] = { strlen( path ) };
+	int binary[1] = { 1 };
+	
+	res = PQexecParams( conn, "SELECT parent_id FROM dir WHERE path = $1::varchar",
+		1, NULL, values, lengths, binary, 1 );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_get_parent_id for path '%s'", path );
+		return -EIO;
+	}
+	
+	if( PQntuples( res ) != 1 ) {
+		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_parent_id, data inconsistent!", path );
+		return -EIO;
+	}
+	
+	i_fnum = PQfnumber( res, "parent_id" );
+	iptr = PQgetvalue( res, 0, i_fnum );
+	parent_id = ntohl( *( (uint32_t *)iptr ) );
+	
+	return parent_id;
+}
+
+static int pgfuse_mkdir( const char *path, mode_t mode )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	char *parent_path;
+	int parent_id;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Mkdir '%s' in mode '%o'", path, (unsigned int)mode );
+	}
+	
+	parent_path = strdup( path );
+	if( parent_path == NULL ) {
+		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
+		return -EIO;
+	}
+	
+	dirname( parent_path );
+
+	parent_id = psql_get_parent_id( data->conn, parent_path );
+	if( parent_id < 0 ) {
+		return parent_id;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Parent_id for new dir '%s' is %d", path, parent_id );
+	}
+
+	
+	free( parent_path );
+	
 	return 0;
 }
 
@@ -80,7 +171,7 @@ static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
 	.readlink	= NULL,
 	.mknod		= NULL,
-	.mkdir		= NULL,
+	.mkdir		= pgfuse_mkdir,
 	.unlink		= NULL,
 	.rmdir		= NULL,
 	.symlink	= NULL,
@@ -257,9 +348,11 @@ int main( int argc, char *argv[] )
 	
 	openlog( basename( argv[0] ), LOG_PID, LOG_USER );
 	
+	memset( &userdata, 0, sizeof( PgFuseData ) );
 	userdata.conninfo = pgfuse.conninfo;
 	userdata.conn = conn;
 	userdata.mountpoint = pgfuse.mountpoint;
+	userdata.verbose = pgfuse.verbose;
 	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
 

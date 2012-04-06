@@ -16,9 +16,11 @@ clean:
 	rm -f pgfuse pgfuse.o
 
 test: pgfuse
-	-./pgfuse "" mnt
+	-./pgfuse -v "" mnt
 	mount | grep pgfuse
-	-ls mnt
+	-mkdir mnt/dir
+	-mkdir mnt/dir/dir2
+	-ls -al mnt
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o
