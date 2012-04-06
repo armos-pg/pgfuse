@@ -103,7 +103,7 @@ static int psql_get_id( PGconn *conn, const char *path, int *isdir )
 	id = ntohl( *( (uint32_t *)iptr ) );
 	s = PQgetvalue( res, 0, i_isdir );
 	*isdir = 0;
-	if( *s == '1' ) *isdir = 1;
+	if( s[0] == '\001' ) *isdir = 1;
 
 	PQclear( res );
 	
@@ -128,13 +128,17 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d", isdir ? "dir" : "file", path, id );
 	}
 	
 	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
-	stbuf->st_mode = S_IFDIR | 0755;
+	if( isdir ) {
+		stbuf->st_mode = S_IFDIR | 0755;
+	} else {
+		stbuf->st_mode = S_IFREG | 0664;
+	}
 	stbuf->st_nlink = 2;
 	stbuf->st_uid = geteuid( );
 	stbuf->st_gid = getegid( );
@@ -152,6 +156,125 @@ static int pgfuse_access( const char *path, int mode )
 	
 	/* TODO: check access, but not now. grant always access */
 	return 0;
+}
+
+static char *flags_to_string( int flags )
+{
+	char *s;
+	char *mode_s;
+	
+	if( ( flags & O_ACCMODE ) == O_WRONLY ) mode_s = "O_WRONLY";
+	else if( ( flags & O_ACCMODE ) == O_RDWR ) mode_s = "O_RDWR";
+	else if( ( flags & O_ACCMODE ) == O_RDONLY ) mode_s = "O_RDONLY";
+	
+	s = (char *)malloc( 100 );
+	if( s == NULL ) return "<memory allocation failed>";
+
+	snprintf( s, 100, "access_mode=%s, flags=%s%s%s%s",
+		mode_s,
+		( flags & O_CREAT ) ? "O_CREAT " : "",
+		( flags & O_TRUNC ) ? "O_TRUNC " : "",
+		( flags & O_EXCL ) ? "O_EXCL " : "",
+		( flags & O_APPEND ) ? "O_APPEND " : "");
+	
+	return s;
+}
+
+static int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, mode_t mode )
+{
+	int param1 = htonl( parent_id );
+	const char *values[3] = { (char *)&param1, new_file, path };
+	int lengths[3] = { sizeof( parent_id), strlen( new_file ), strlen( path ) };
+	int binary[3] = { 1, 0, 0 };
+	PGresult *res;
+	
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, false )",
+		3, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_create_file for path '%s'", path );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}
+
+static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	int isdir;
+	char *copy_path;
+	char *parent_path;
+	char *new_file;
+	int parent_id;
+	int res;
+		
+	if( data->verbose ) {
+		char *s = flags_to_string( fi->flags );
+		syslog( LOG_INFO, "Create '%s' in mode '%o' on '%s' with flags '%s'", path, mode, data->mountpoint, s );
+		if( *s != '<' ) free( s );
+	}
+	
+	id = psql_get_id( data->conn, path, &isdir );
+	if( id < 0 && id != -ENOENT ) {
+		return id;
+	}
+
+	
+	if( id >= 0 ) {
+		if( data->verbose ) {
+			syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
+		}
+		
+		/* exists */
+		if( isdir ) {
+			if( isdir ) {
+				/* exists and is a directory, no can do */
+				return -EISDIR;
+			}
+			return -EEXIST;
+		}
+	}
+	
+	copy_path = strdup( path );
+	if( copy_path == NULL ) {
+		syslog( LOG_ERR, "Out of memory in Create '%s'!", path );
+		return -ENOMEM;
+	}
+	
+	parent_path = dirname( copy_path );
+
+	parent_id = psql_get_id( data->conn, parent_path, &isdir );
+	if( parent_id < 0 ) {
+		return parent_id;
+	}
+	if( !isdir ) {
+		return -ENOENT;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Parent_id for new file '%s' is %d", path, parent_id );
+	}
+	
+	free( copy_path );
+	copy_path = strdup( path );
+	if( copy_path == NULL ) {
+		free( parent_path );
+		syslog( LOG_ERR, "Out of memory in Create '%s'!", path );
+		return -ENOMEM;
+	}
+	
+	new_file = basename( copy_path );
+	
+	res = psql_create_file( data->conn, parent_id, path, new_file, mode );
+
+	free( copy_path );
+	
+	return res;
 }
 
 static int psql_get_parent_id( PGconn *conn, const char *path )
@@ -230,7 +353,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	int isdir;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Readdir '%s'", path );
+		syslog( LOG_INFO, "Readdir '%s' on '%s'", path, data->mountpoint  );
 	}
 	
 	filler( buf, ".", NULL, 0 );
@@ -258,7 +381,7 @@ static int psql_create_dir( PGconn *conn, const int parent_id, const char *path,
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_createdir for path '%s'", path );
+		syslog( LOG_ERR, "Error in psql_create_dir for path '%s'", path );
 		PQclear( res );
 		return -EIO;
 	}
@@ -279,13 +402,13 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	int isdir;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Mkdir '%s' in mode '%o'", path, (unsigned int)mode );
+		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'", path, (unsigned int)mode, data->mountpoint  );
 	}
 	
 	copy_path = strdup( path );
 	if( copy_path == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
-		return -EIO;
+		return -ENOMEM;
 	}
 	
 	parent_path = dirname( copy_path );
@@ -307,7 +430,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	if( copy_path == NULL ) {
 		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
-		return -EIO;
+		return -ENOMEM;
 	}
 	
 	new_dir = basename( copy_path );
@@ -348,7 +471,7 @@ static struct fuse_operations pgfuse_oper = {
 	.init		= pgfuse_init,
 	.destroy	= pgfuse_destroy,
 	.access		= pgfuse_access,
-	.create		= NULL,
+	.create		= pgfuse_create,
 	.ftruncate	= NULL,
 	.fgetattr	= NULL,
 	.lock		= NULL,

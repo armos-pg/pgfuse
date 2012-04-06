@@ -21,7 +21,9 @@ test: pgfuse
 	mount | grep pgfuse
 	-mkdir mnt/dir
 	-mkdir mnt/dir/dir2
+	-echo "hello" > mnt/dir/dir2/afile
 	-ls -al mnt
+	-ls -al mnt/dir/dir2/afile
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o
