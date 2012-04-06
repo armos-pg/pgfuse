@@ -17,7 +17,7 @@
 
 #include <string.h>		/* for strdup, memset */
 #include <libgen.h>		/* for POSIX compliant basename */
-#include <unistd.h>		/* for exit */
+#include <unistd.h>		/* for exit, geteuid, getegid */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
 #include <stdio.h>		/* for fprintf */
 #include <stddef.h>		/* for offsetof */
@@ -31,6 +31,8 @@
 #include <fuse_opt.h>		/* fuse command line parser */
 
 #include <libpq-fe.h>		/* for Postgresql database access */
+
+#define STANDARD_BLOCK_SIZE 512
 
 /* --- fuse callbacks --- */
 
@@ -62,37 +64,48 @@ static void pgfuse_destroy( void *userdata )
 	}
 }
 
-static int psql_get_id( PGconn *conn, const char *path )
+static int psql_get_id( PGconn *conn, const char *path, int *isdir )
 {
 	PGresult *res;
 	int i_fnum;
+	int i_isdir;
 	char *iptr;
+	char *s;
 	int id;
 	
 	const char *values[1] = { path };
 	int lengths[1] = { strlen( path ) };
 	int binary[1] = { 1 };
 	
-	res = PQexecParams( conn, "SELECT id FROM dir WHERE path = $1::varchar",
+	res = PQexecParams( conn, "SELECT id, isdir FROM dir WHERE path = $1::varchar",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
 		syslog( LOG_ERR, "Error in psql_get_id for path '%s'", path );
+		PQclear( res );
 		return -EIO;
 	}
 	
 	if( PQntuples( res ) == 0 ) {
+		PQclear( res );
 		return -ENOENT;
 	}
 	
 	if( PQntuples( res ) > 1 ) {
 		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_id, data inconsistent!", path );
+		PQclear( res );
 		return -EIO;
 	}
 	
 	i_fnum = PQfnumber( res, "id" );
+	i_isdir = PQfnumber( res, "isdir" );
 	iptr = PQgetvalue( res, 0, i_fnum );
 	id = ntohl( *( (uint32_t *)iptr ) );
+	s = PQgetvalue( res, 0, i_isdir );
+	*isdir = 0;
+	if( *s == '1' ) *isdir = 1;
+
+	PQclear( res );
 	
 	return id;
 }
@@ -101,21 +114,15 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
+	int isdir;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
 	}
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
-	
-	if( strcmp( path, "/" ) == 0 ) {
-		/* show contents of the root path */
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-		return 0;
-	}
-	
-	id = psql_get_id( data->conn, path );
+
+	id = psql_get_id( data->conn, path, &isdir );
 	if( id < 0 ) {
 		return id;
 	}
@@ -124,9 +131,26 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 		syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
 	}
 	
+	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
+	stbuf->st_ino = id;
+	stbuf->st_blocks = 0;
 	stbuf->st_mode = S_IFDIR | 0755;
 	stbuf->st_nlink = 2;
+	stbuf->st_uid = geteuid( );
+	stbuf->st_gid = getegid( );
 	
+	return 0;
+}
+
+static int pgfuse_access( const char *path, int mode )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Access on '%s' and mode '%o", path, (unsigned int)mode );
+	}
+	
+	/* TODO: check access, but not now. grant always access */
 	return 0;
 }
 
@@ -146,17 +170,21 @@ static int psql_get_parent_id( PGconn *conn, const char *path )
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
 		syslog( LOG_ERR, "Error in psql_get_parent_id for path '%s'", path );
+		PQclear( res );
 		return -EIO;
 	}
 	
 	if( PQntuples( res ) != 1 ) {
 		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_parent_id, data inconsistent!", path );
+		PQclear( res );
 		return -EIO;
 	}
 	
 	i_fnum = PQfnumber( res, "parent_id" );
 	iptr = PQgetvalue( res, 0, i_fnum );
 	parent_id = ntohl( *( (uint32_t *)iptr ) );
+
+	PQclear( res );
 	
 	return parent_id;
 }
@@ -177,6 +205,7 @@ static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
 		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d'", parent_id );
+		PQclear( res );
 		return -EIO;
 	}
 	
@@ -186,6 +215,8 @@ static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill
 		if( strcmp( name, "/" ) == 0 ) continue;
 		filler( buf, name, NULL, 0 );
         }
+        
+	PQclear( res );
         	
 	return 0;
 }
@@ -196,6 +227,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
 	int res;
+	int isdir;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Readdir '%s'", path );
@@ -204,7 +236,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
 	
-	id = psql_get_id( data->conn, path );
+	id = psql_get_id( data->conn, path, &isdir );
 	if( id < 0 ) {
 		return id;
 	}
@@ -222,13 +254,16 @@ static int psql_create_dir( PGconn *conn, const int parent_id, const char *path,
 	int binary[3] = { 1, 0, 0 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path ) VALUES ($1::int4, $2::varchar, $3::varchar)",
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, true )",
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_createdir for path '%s'", path );
+		PQclear( res );
 		return -EIO;
 	}
+	
+	PQclear( res );
 	
 	return 0;
 }
@@ -241,6 +276,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	char *new_dir;
 	int parent_id;
 	int res;
+	int isdir;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o'", path, (unsigned int)mode );
@@ -254,9 +290,12 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_id( data->conn, parent_path );
+	parent_id = psql_get_id( data->conn, parent_path, &isdir );
 	if( parent_id < 0 ) {
 		return parent_id;
+	}
+	if( !isdir ) {
+		return -ENOENT;
 	}
 	
 	if( data->verbose ) {
@@ -308,7 +347,7 @@ static struct fuse_operations pgfuse_oper = {
 	.fsyncdir	= NULL,
 	.init		= pgfuse_init,
 	.destroy	= pgfuse_destroy,
-	.access		= NULL,
+	.access		= pgfuse_access,
 	.create		= NULL,
 	.ftruncate	= NULL,
 	.fgetattr	= NULL,

@@ -23,8 +23,8 @@ CREATE TABLE dir (
 	id SERIAL PRIMARY KEY,
 	parent_id INTEGER REFERENCES dir( id ),
 	name TEXT,
-	depth INTEGER,
 	path TEXT,
+	isdir BOOL,
 	UNIQUE( name, parent_id ),
 	UNIQUE( path )
 );
@@ -34,5 +34,5 @@ CREATE TABLE dir (
 INSERT INTO data(data) values( '' );
 
 -- self-referencing anchor for root directory
-INSERT INTO dir values( 0, 0, '/', 0, '/' );
+INSERT INTO dir values( 0, 0, '/', '/', true );
 
