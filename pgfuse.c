@@ -121,26 +121,11 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for  dir '%s' is %d", path, id );
+		syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
 	}
 	
 	stbuf->st_mode = S_IFDIR | 0755;
 	stbuf->st_nlink = 2;
-	
-	return 0;
-}
-
-static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
-                           off_t offset, struct fuse_file_info *fi )
-{
-	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	
-	if( data->verbose ) {
-		syslog( LOG_INFO, "Readdir '%s'", path );
-	}
-	
-	filler( buf, ".", NULL, 0 );
-	filler( buf, "..", NULL, 0 );
 	
 	return 0;
 }
@@ -174,6 +159,59 @@ static int psql_get_parent_id( PGconn *conn, const char *path )
 	parent_id = ntohl( *( (uint32_t *)iptr ) );
 	
 	return parent_id;
+}
+
+static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler )
+{
+	int param1 = htonl( parent_id );
+	const char *values[1] = { (char *)&param1 };
+	int lengths[1] = { sizeof( param1 ) };
+	int binary[1] = { 1 };
+	PGresult *res;
+	int i_name;
+	int i;
+	char *name;
+	
+	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::int4",
+		1, NULL, values, lengths, binary, 1 );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d'", parent_id );
+		return -EIO;
+	}
+	
+	i_name = PQfnumber( res, "name" );
+	for( i = 0; i < PQntuples( res ); i++ ) {
+		name = PQgetvalue( res, i, i_name );
+		if( strcmp( name, "/" ) == 0 ) continue;
+		filler( buf, name, NULL, 0 );
+        }
+        	
+	return 0;
+}
+
+static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
+                           off_t offset, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	int res;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Readdir '%s'", path );
+	}
+	
+	filler( buf, ".", NULL, 0 );
+	filler( buf, "..", NULL, 0 );
+	
+	id = psql_get_id( data->conn, path );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	res = psql_readdir( data->conn, id, buf, filler );
+	
+	return res;
 }
 
 static int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode )
@@ -234,7 +272,6 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 	
 	new_dir = basename( copy_path );
-	syslog( LOG_INFO, "path %s, parent_path %s, new_dir %s", path, parent_path, new_dir );
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
 
