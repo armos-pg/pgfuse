@@ -1,9 +1,9 @@
 all: pgfuse
 
 # for debugging
-CFLAGS = -Wall -Wextra -pedantic -g
+CFLAGS = -Wall -g -O0
 # for releasing
-CFLAGS = -Wall
+#CFLAGS = -Wall -O2
 
 # declare version of FUSE API we want to program against
 CFLAGS += -DFUSE_USE_VERSION=26

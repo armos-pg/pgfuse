@@ -159,9 +159,15 @@ static void print_usage( char* progname )
 	);
 }
 		
-static int parse_args( int argc, char *argv[] )
-{
+/* --- main --- */
+
+int main( int argc, char *argv[] )
+{		
+	int res;
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
+	
+	memset( &pgfuse, 0, sizeof( pgfuse ) );
+	
 	if( fuse_opt_parse( &args, &pgfuse, pgfuse_opts, pgfuse_opt_proc ) == -1 ) {
 		if( pgfuse.print_help ) {
 			/* print our options */
@@ -180,17 +186,8 @@ static int parse_args( int argc, char *argv[] )
 	}
 		
 	return EXIT_SUCCESS;
-}
 
-/* --- main --- */
+	res = fuse_main( argc, argv, &pgfuse_oper, NULL );
 
-int main( int argc, char *argv[] )
-{		
-	int res;
-	
-	memset( &pgfuse, 0, sizeof( pgfuse ) );
-	
-	res = parse_args( argc, argv );
-	
 	exit( res );
 }
