@@ -134,11 +134,32 @@ static int psql_get_parent_id( PGconn *conn, const char *path )
 	return parent_id;
 }
 
+static int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode )
+{
+	int param1 = htonl( parent_id );
+	const char *values[3] = { (char *)&param1, new_dir, path };
+	int lengths[3] = { sizeof( parent_id), strlen( new_dir ), strlen( path ) };
+	int binary[3] = { 1, 0, 0 };
+	int res;
+	
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path ) VALUES ($1::int4, $2::varchar, $3::varchar)",
+		3, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_createdir for path '%s'", path );
+		return -EIO;
+	}
+	
+	return 0;
+}
+
 static int pgfuse_mkdir( const char *path, mode_t mode )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	char *parent_path;
+	char *new_dir;
 	int parent_id;
+	int res;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o'", path, (unsigned int)mode );
@@ -158,13 +179,24 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Parent_id for new dir '%s' is %d", path, parent_id );
+		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %d", path, parent_id );
 	}
-
 	
+	new_dir = strdup( path );
+	if( new_dir == NULL ) {
+		free( parent_path );
+		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
+		return -EIO;
+	}
+	
+	basename( new_dir );
+	
+	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
+
+	free( new_dir );
 	free( parent_path );
 	
-	return 0;
+	return res;
 }
 
 static struct fuse_operations pgfuse_oper = {

@@ -16,6 +16,7 @@ clean:
 	rm -f pgfuse pgfuse.o
 
 test: pgfuse
+	psql < test.sql
 	-./pgfuse -v "" mnt
 	mount | grep pgfuse
 	-mkdir mnt/dir
