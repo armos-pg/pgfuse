@@ -1,0 +1,13 @@
+- pooling of PQconn
+- thread-synchronization
+- handling of most file system metadata
+- efficient partial writes of bytea
+- use of asynchonous read/writes
+- what is a transaction? couple to fsync/fdatasync
+  for files? other ideas? customizable?
+- how to store binary data? bytea or BLOBs? is
+  there a way to implement streams (append to
+  file, or sequential read) efficient together
+  with random access? db securityy on blobs?
+  Use COPY TO/COPY FROM?
+

@@ -26,13 +26,35 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>		/* for htonl, ntohl */
+#include <search.h>		/* for hcreate, hsearch */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
 
 #include <libpq-fe.h>		/* for Postgresql database access */
 
+/* standard block size, rather a simulation currently */
 #define STANDARD_BLOCK_SIZE 512
+
+/* maximal number of open files, limited currently due to a too simple
+ * hash table implementation of open file handles */
+#define MAX_NOF_OPEN_FILES 256
+
+/* maximum size of a file, rather arbitrary, 2^31 is a current implementation
+ * limit, before fixing this, the storing and efficiency has to be rethought
+ * anyway.. */
+#define MAX_FILE_SIZE 65535
+
+/* --- internal file handles */
+
+typedef struct PgFuseFile {
+	int id;			/* id as in database, also passed in FUSE context */
+	char *buf;		/* buffer containing data */
+	size_t size;		/* current size of the buffer (malloc/realloc) */
+	size_t used;		/* used size in the buffer */
+} PgFuseFile;
+
+static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
 
 /* --- fuse callbacks --- */
 
@@ -51,6 +73,8 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 		syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
 			data->mountpoint, data->conninfo );
 	}
+	
+	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
 	
 	return data;
 }
@@ -134,12 +158,16 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
+	/* no mode information is stored currently
+	 * TODO: store mode in 'inode' table */
 	if( isdir ) {
-		stbuf->st_mode = S_IFDIR | 0755;
+		stbuf->st_mode = S_IFDIR | 0775;
 	} else {
 		stbuf->st_mode = S_IFREG | 0664;
 	}
+	/* TODO: set correctly from table */
 	stbuf->st_nlink = 2;
+	/* set rights to the user running 'pgfuse' */
 	stbuf->st_uid = geteuid( );
 	stbuf->st_gid = getegid( );
 	
@@ -223,7 +251,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	if( id < 0 && id != -ENOENT ) {
 		return id;
 	}
-
 	
 	if( id >= 0 ) {
 		if( data->verbose ) {
@@ -257,7 +284,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for new file '%s' is %d", path, parent_id );
+		syslog( LOG_DEBUG, "Parent_id for new file '%s' in dir '%s' is %d", path, parent_path, parent_id );
 	}
 	
 	free( copy_path );
@@ -271,10 +298,53 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	new_file = basename( copy_path );
 	
 	res = psql_create_file( data->conn, parent_id, path, new_file, mode );
-
+	
+	/* an error occurred in the DB */
+	if( res < 0 ) {
+		return res;
+	}
+	
+	/* get id and store it, remember it in the hash of open files */
+	id = psql_get_id( data->conn, path, &isdir );
+	if( id < 0 ) {
+		return res;
+	}
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id for new file '%s' is %d", path, id );
+	}
+	
+	fi->fh = id;
+	
+	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].id != 0 ) {
+		return -EMFILE;
+	}
+	
+	pgfuse_files[id % MAX_NOF_OPEN_FILES].id = id;
+	pgfuse_files[id % MAX_NOF_OPEN_FILES].size = STANDARD_BLOCK_SIZE;
+	pgfuse_files[id % MAX_NOF_OPEN_FILES].used = 0;
+	pgfuse_files[id % MAX_NOF_OPEN_FILES].buf = (char *)malloc( STANDARD_BLOCK_SIZE );
+	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].buf == NULL ) {
+		pgfuse_files[id % MAX_NOF_OPEN_FILES].id = 0;
+		fi->fh = 0;
+		return -ENOMEM;
+	}
+	
 	free( copy_path );
 	
 	return res;
+}
+
+static int pgfuse_open( const char *path, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+
+	if( data->verbose ) {
+		char *s = flags_to_string( fi->flags );
+		syslog( LOG_INFO, "Open '%s' on '%s' with flags '%s'", path, data->mountpoint, s );
+		if( *s != '<' ) free( s );
+	}
+	
+	return -EACCES;
 }
 
 static int psql_get_parent_id( PGconn *conn, const char *path )
@@ -310,6 +380,12 @@ static int psql_get_parent_id( PGconn *conn, const char *path )
 	PQclear( res );
 	
 	return parent_id;
+}
+
+static int pgfuse_opendir( const char *path, struct fuse_file_info *fi )
+{
+	/* nothing to do, everything is done in pgfuse_readdir currently */
+	return 0;
 }
 
 static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler )
@@ -367,6 +443,18 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	res = psql_readdir( data->conn, id, buf, filler );
 	
 	return res;
+}
+
+static int pgfuse_releasedir( const char *path, struct fuse_file_info *fi )
+{
+	/* nothing to do, everything is done in pgfuse_readdir currently */
+	return 0;
+}
+
+static int pgfuse_fsyncdir( const char *path, struct fuse_file_info *fi )
+{
+	/* nothing to do, everything is done in pgfuse_readdir currently */
+	return 0;
 }
 
 static int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode )
@@ -442,6 +530,84 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	return res;
 }
 
+static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
+{
+	/* nothing to do currently as the temporary file buffer holds
+	 * all the content in memory */
+	return 0;
+}
+
+static int pgfuse_release( const char *path, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgFuseFile *f;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Releasing '%s' on '%s'",
+			path, data->mountpoint  );
+	}
+
+	if( fi->fh == 0 ) {
+		return -EBADF;
+	}
+
+	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+	
+	f->id = 0;
+	f->size = 0;
+	free( f->buf );
+	f->used = 0;
+
+	return 0;
+}
+
+static int pgfuse_write( const char *path, const char *buf, size_t size,
+                          off_t offset, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgFuseFile *f;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s'",
+			path, (unsigned int)offset, (unsigned int)size, data->mountpoint  );
+	}
+
+	if( fi->fh == 0 ) {
+		return -EBADF;
+	}
+
+	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+	
+	if( offset + size > f->size ) {
+		f->size *= 1.2;
+		if( f->size > MAX_FILE_SIZE ) {
+			f->id = 0;
+			free( f->buf );
+			fi->fh = 0;
+			return -EFBIG;
+		}			
+		f->buf = (char *)realloc( f->buf, f->size );
+		if( f->buf == NULL ) {
+			f->id = 0;
+			fi->fh = 0;
+			return -ENOMEM;
+		}
+	}
+	
+	memcpy( f->buf+offset, buf, size );
+	if( offset + size > f->used ) {
+		f->used = offset + size;
+	}
+	
+	return size;
+}
+
+int pgfuse_utimens( const char *path, const struct timespec tv[2] )
+{
+	/* TODO: write tv to 'inode' as atime and mtime */
+	return 0;
+}
+
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
 	.readlink	= NULL,
@@ -455,19 +621,20 @@ static struct fuse_operations pgfuse_oper = {
 	.chmod		= NULL,
 	.chown		= NULL,
 	.utime		= NULL,
-	.open		= NULL,
+	.open		= pgfuse_open,
 	.read		= NULL,
-	.write		= NULL,
+	.write		= pgfuse_write,
 	.statfs		= NULL,
-	.flush		= NULL,
-	.release	= NULL,
+	.flush		= pgfuse_flush,
+	.release	= pgfuse_release,
 	.fsync		= NULL,
 	.setxattr	= NULL,
 	.listxattr	= NULL,
 	.removexattr	= NULL,
-	.opendir	= NULL,
+	.opendir	= pgfuse_opendir,
 	.readdir	= pgfuse_readdir,
-	.fsyncdir	= NULL,
+	.releasedir	= pgfuse_releasedir,
+	.fsyncdir	= pgfuse_fsyncdir,
 	.init		= pgfuse_init,
 	.destroy	= pgfuse_destroy,
 	.access		= pgfuse_access,
@@ -475,7 +642,7 @@ static struct fuse_operations pgfuse_oper = {
 	.ftruncate	= NULL,
 	.fgetattr	= NULL,
 	.lock		= NULL,
-	.utimens	= NULL,
+	.utimens	= pgfuse_utimens,
 	.bmap		= NULL,
 	.ioctl		= NULL,
 	.poll		= NULL
