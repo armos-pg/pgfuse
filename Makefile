@@ -17,13 +17,14 @@ clean:
 
 test: pgfuse
 	psql < test.sql
-	-./pgfuse -v "" mnt
+	-./pgfuse -s -v "" mnt
 	mount | grep pgfuse
 	-mkdir mnt/dir
 	-mkdir mnt/dir/dir2
 	-echo "hello" > mnt/dir/dir2/afile
+	-cp Makefile mnt/dir/dir2/bfile
 	-ls -al mnt
-	-ls -al mnt/dir/dir2/afile
+	-ls -al mnt/dir/dir2
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o

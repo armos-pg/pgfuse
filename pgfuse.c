@@ -52,6 +52,7 @@ typedef struct PgFuseFile {
 	char *buf;		/* buffer containing data */
 	size_t size;		/* current size of the buffer (malloc/realloc) */
 	size_t used;		/* used size in the buffer */
+	int ref_count;		/* reference counter (for double opens, dup, etc.) */
 } PgFuseFile;
 
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
@@ -220,7 +221,8 @@ static int psql_create_file( PGconn *conn, const int parent_id, const char *path
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_create_file for path '%s'", path );
+		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",
+			path, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -240,6 +242,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	char *new_file;
 	int parent_id;
 	int res;
+	PgFuseFile *f;
 		
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -319,15 +322,17 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return -EMFILE;
 	}
 	
-	pgfuse_files[id % MAX_NOF_OPEN_FILES].id = id;
-	pgfuse_files[id % MAX_NOF_OPEN_FILES].size = STANDARD_BLOCK_SIZE;
-	pgfuse_files[id % MAX_NOF_OPEN_FILES].used = 0;
-	pgfuse_files[id % MAX_NOF_OPEN_FILES].buf = (char *)malloc( STANDARD_BLOCK_SIZE );
-	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].buf == NULL ) {
-		pgfuse_files[id % MAX_NOF_OPEN_FILES].id = 0;
+	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
+	f->id = id;
+	f->size = STANDARD_BLOCK_SIZE;
+	f->used = 0;
+	f->buf = (char *)malloc( f->size );
+	if( f->buf == NULL ) {
+		f->id = 0;
 		fi->fh = 0;
 		return -ENOMEM;
 	}
+	f->ref_count = 1;
 	
 	free( copy_path );
 	
@@ -362,7 +367,8 @@ static int psql_get_parent_id( PGconn *conn, const char *path )
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_get_parent_id for path '%s'", path );
+		syslog( LOG_ERR, "Error in psql_get_parent_id for path '%s': %s",
+			path, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -403,7 +409,8 @@ static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d'", parent_id );
+		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d': %s",
+			parent_id, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -451,7 +458,7 @@ static int pgfuse_releasedir( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
-static int pgfuse_fsyncdir( const char *path, struct fuse_file_info *fi )
+static int pgfuse_fsyncdir( const char *path, int datasync, struct fuse_file_info *fi )
 {
 	/* nothing to do, everything is done in pgfuse_readdir currently */
 	return 0;
@@ -469,7 +476,7 @@ static int psql_create_dir( PGconn *conn, const int parent_id, const char *path,
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_create_dir for path '%s'", path );
+		syslog( LOG_ERR, "Error in psql_create_dir for path '%s': %s", path, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -537,11 +544,35 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
+static int psql_write_buf( PGconn *conn, const int id, const char *path, char *buf, size_t len )
+{
+	int param1 = htonl( id );
+	int param2 = htonl( (unsigned int)len );
+	const char *values[3] = { (char *)&param1, (char *)&param2, buf };
+	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), len };
+	int binary[3] = { 1, 1, 1 };
+	PGresult *res;
+	
+	res = PQexecParams( conn, "UPDATE dir SET data=$3::bytea,size=$2::int4 WHERE id=$1::int4",
+		3, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_write_buf for file '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return len;
+}
+
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
-
+	int res;
+	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s'",
 			path, data->mountpoint  );
@@ -553,12 +584,19 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
+	f->ref_count--;
+	if( f->ref_count > 0 ) {
+		return 0;
+	}
+
+	res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
+	
 	f->id = 0;
 	f->size = 0;
 	free( f->buf );
 	f->used = 0;
 
-	return 0;
+	return res;
 }
 
 static int pgfuse_write( const char *path, const char *buf, size_t size,
@@ -579,7 +617,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
 	if( offset + size > f->size ) {
-		f->size *= 1.2;
+		f->size = ( ( ( offset + size ) / STANDARD_BLOCK_SIZE ) + 1 ) * STANDARD_BLOCK_SIZE;
 		if( f->size > MAX_FILE_SIZE ) {
 			f->id = 0;
 			free( f->buf );
