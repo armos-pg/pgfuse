@@ -443,42 +443,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
-static int psql_get_parent_id( PGconn *conn, const char *path )
-{
-	PGresult *res;
-	int i_fnum;
-	char *iptr;
-	int parent_id;
-	
-	const char *values[1] = { path };
-	int lengths[1] = { strlen( path ) };
-	int binary[1] = { 1 };
-	
-	res = PQexecParams( conn, "SELECT parent_id FROM dir WHERE path = $1::varchar",
-		1, NULL, values, lengths, binary, 1 );
-	
-	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_get_parent_id for path '%s': %s",
-			path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	if( PQntuples( res ) != 1 ) {
-		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_parent_id, data inconsistent!", path );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	i_fnum = PQfnumber( res, "parent_id" );
-	iptr = PQgetvalue( res, 0, i_fnum );
-	parent_id = ntohl( *( (uint32_t *)iptr ) );
-
-	PQclear( res );
-	
-	return parent_id;
-}
-
 static int pgfuse_opendir( const char *path, struct fuse_file_info *fi )
 {
 	/* nothing to do, everything is done in pgfuse_readdir currently */
