@@ -7,26 +7,32 @@ drop of efficiency and incremental backups for instance). :-)
 Nevertheless, there are special situations, where a filesystem in a database
 is usefull. With FUSE this is also rather simple to write.
 
-The reason I wrote one was a projects with lots of data on a ReiserFS, which
-was more or less immutable and should be efficiently stored away (almost in
-an archive mode). Backup is no issue there (as the files are more or less
-static after an initial load), but space efficiency is an issue.
+The reason I wrote one was a project with lots of data on a ReiserFS (at
+least in 2001, this was), which was more or less immutable and should be 
+efficiently stored away (almost in an archive mode). Backup is no issue
+here (as the files are more or less static after an initial load),
+but space efficiency is an issue.
 
 Most other projects try to map an existing database structure somehow as
-files. This here should strictly deal with files/dirs as the only model.
+files. This here should strictly deal withs files/dirs as the only
+available model.
  
 Other projects
 --------------
 
-Pgfs: store a filesystem in Postgres, expose it as NFS server, rather old
-      and I was unable to find the sources
+Pgfs: stores a filesystem in Postgres, exposes it as a NFS server, rather old
+      and I was unable to find the sources.
 
 mysqlfs: the blueprint I used and got inspired from.
+
+curlftpfs: blueprint for some debugging code.
+
+zip-fs: blueprint for handling files in memory (in my current implementation,
+        this should be changed of course)
 
 References
 ----------
 
+http://www.postgresql.org/docs/
+http://fuse.sourceforge.net/
 http://www.cs.hmc.edu/~geoff/classes/hmc.cs135.201109/homework/fuse/fuse_doc.html
-http://www.postgresql.org/docs/8.3/static/libpq-example.html
-http://www.postgresql.org/docs/8.0/static/libpq-example.html
-http://fuse.sourceforge.net/doxygen/structfuse__operations.html#dc6dc71274f185de72217e38d62142c4

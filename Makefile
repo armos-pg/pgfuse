@@ -23,6 +23,7 @@ test: pgfuse
 	-mkdir mnt/dir/dir2
 	-echo "hello" > mnt/dir/dir2/afile
 	-cp Makefile mnt/dir/dir2/bfile
+	-cat mnt/dir/dir2/afile
 	-ls -al mnt
 	-ls -al mnt/dir/dir2
 	fusermount -u mnt

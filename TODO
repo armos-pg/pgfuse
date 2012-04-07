@@ -10,4 +10,6 @@
   file, or sequential read) efficient together
   with random access? db securityy on blobs?
   Use COPY TO/COPY FROM?
+- establish self-containment (with respect to
+  a temporarily unavailable Postgresql server)
 

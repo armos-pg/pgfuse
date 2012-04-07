@@ -1,4 +1,5 @@
 DROP RULE dir_insert ON dir;
+DROP RULE dir_remove ON dir;
 DROP TABLE data;
 DROP TABLE dir;
 
@@ -31,7 +32,11 @@ CREATE OR REPLACE RULE "dir_insert" AS ON
 	INSERT TO dir WHERE NEW.isdir = false
 	DO ALSO INSERT INTO data( id )
 	VALUES ( currval( 'dir_id_seq' ) );
-	
+
+-- garbage collect deleted file entries
+CREATE OR REPLACE RULE "dir_remove" AS ON
+	DELETE TO dir WHERE OLD.isdir = false
+	DO ALSO DELETE FROM data WHERE id=OLD.id;	
 	
 -- self-referencing anchor for root directory
 INSERT INTO dir values( 0, 0, '/', '/', true );

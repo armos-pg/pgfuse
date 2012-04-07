@@ -324,9 +324,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	if( data->verbose ) {
 		syslog( LOG_DEBUG, "Id for new file '%s' is %d", path, id );
 	}
-	
-	fi->fh = id;
-	
+		
 	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].id != 0 ) {
 		return -EMFILE;
 	}
@@ -338,27 +336,111 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	f->buf = (char *)malloc( f->size );
 	if( f->buf == NULL ) {
 		f->id = 0;
-		fi->fh = 0;
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
+
+	fi->fh = id;
 	
 	free( copy_path );
 	
 	return res;
 }
 
+static int psql_read_buf( PGconn *conn, const int id, const char *path, char **buf, const size_t len )
+{
+	int param1 = htonl( id );
+	const char *values[1] = { (char *)&param1 };
+	int lengths[2] = { sizeof( param1 ) };
+	int binary[2] = { 1, 1 };
+	PGresult *res;
+	int i_data;
+	int read;
+	
+	res = PQexecParams( conn, "SELECT data FROM DATA WHERE id=$1::int4",
+		1, NULL, values, lengths, binary, 1 );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_read_buf for path '%s'", path );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	if( PQntuples( res ) != 1 ) {
+		syslog( LOG_ERR, "Expecting exactly one data entry for path '%s' in psql_read_buf, data inconsistent!", path );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	i_data = PQfnumber( res, "data" );
+	read = PQgetlength( res, 0, i_data );
+	memcpy( *buf, PQgetvalue( res, 0, i_data ), read );
+
+	PQclear( res );
+	
+	return read;
+}
+
 static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgMeta meta;
+	int id;
+	PgFuseFile *f;
+	int res;
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
 		syslog( LOG_INFO, "Open '%s' on '%s' with flags '%s'", path, data->mountpoint, s );
 		if( *s != '<' ) free( s );
 	}
+
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
 	
-	return -EACCES;
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id for file '%s' to open is %d", path, id );
+	}
+		
+	if( meta.isdir ) {
+		/* exists and is a directory, no can do */
+		return -EISDIR;
+	}
+
+	if( meta.size > MAX_FILE_SIZE ) {
+		return -EFBIG;
+	}			
+	
+	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
+	
+	if( f->id != 0 ) {
+		return -EMFILE;
+	}
+	
+	f->id = id;
+	f->size = ( ( meta.size / STANDARD_BLOCK_SIZE ) + 1 ) * STANDARD_BLOCK_SIZE;
+	f->used = meta.size;
+	f->buf = (char *)malloc( f->size );
+	if( f->buf == NULL ) {
+		f->id = 0;
+		return -ENOMEM;
+	}
+	f->ref_count = 1;
+	
+	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
+	if( res != f->used ) {
+		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
+			path, f->used, res, data->mountpoint );
+		free( f->buf );
+		f->id = 0;
+		return -EIO;
+	}
+
+	fi->fh = id;
+	
+	return 0;
 }
 
 static int psql_get_parent_id( PGconn *conn, const char *path )
@@ -553,7 +635,7 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
-static int psql_write_buf( PGconn *conn, const int id, const char *path, char *buf, size_t len )
+static int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len )
 {
 	int param1 = htonl( id );
 	const char *values[2] = { (char *)&param1, buf };
@@ -637,7 +719,7 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 }
 
 static int pgfuse_write( const char *path, const char *buf, size_t size,
-                          off_t offset, struct fuse_file_info *fi )
+                         off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
@@ -677,6 +759,53 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	return size;
 }
 
+static int pgfuse_read( const char *path, char *buf, size_t size,
+                        off_t offset, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgFuseFile *f;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s'",
+			path, (unsigned int)offset, (unsigned int)size, data->mountpoint  );
+	}
+
+	if( fi->fh == 0 ) {
+		return -EBADF;
+	}
+
+	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+	
+	if( offset + size > f->used ) {
+		size = f->used - offset;
+	}
+	
+	memcpy( buf, f->buf+offset, size );
+	
+	return size;
+}
+
+int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgFuseFile *f;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s'",
+			path, (unsigned int)offset, data->mountpoint  );
+	}
+
+	if( fi->fh == 0 ) {
+		return -EBADF;
+	}
+	
+	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+	
+	f->used = offset;
+	
+	return 0;
+}
+
 int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 {
 	/* TODO: write tv to 'inode' as atime and mtime */
@@ -697,7 +826,7 @@ static struct fuse_operations pgfuse_oper = {
 	.chown		= NULL,
 	.utime		= NULL,
 	.open		= pgfuse_open,
-	.read		= NULL,
+	.read		= pgfuse_read,
 	.write		= pgfuse_write,
 	.statfs		= NULL,
 	.flush		= pgfuse_flush,
@@ -714,7 +843,8 @@ static struct fuse_operations pgfuse_oper = {
 	.destroy	= pgfuse_destroy,
 	.access		= pgfuse_access,
 	.create		= pgfuse_create,
-	.ftruncate	= NULL,
+	.truncate	= NULL,
+	.ftruncate	= pgfuse_ftruncate,
 	.fgetattr	= NULL,
 	.lock		= NULL,
 	.utimens	= pgfuse_utimens,
