@@ -55,6 +55,11 @@ typedef struct PgFuseFile {
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
 } PgFuseFile;
 
+typedef struct PgMeta {
+	size_t size;		/* the size of the file */
+	int isdir;		/* whether we have a directory or a file */
+} PgMeta;
+
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
 
 /* --- fuse callbacks --- */
@@ -89,10 +94,11 @@ static void pgfuse_destroy( void *userdata )
 	}
 }
 
-static int psql_get_id( PGconn *conn, const char *path, int *isdir )
+static int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 {
 	PGresult *res;
-	int i_fnum;
+	int i_id;
+	int i_size;
 	int i_isdir;
 	char *iptr;
 	char *s;
@@ -102,11 +108,11 @@ static int psql_get_id( PGconn *conn, const char *path, int *isdir )
 	int lengths[1] = { strlen( path ) };
 	int binary[1] = { 1 };
 	
-	res = PQexecParams( conn, "SELECT id, isdir FROM dir WHERE path = $1::varchar",
+	res = PQexecParams( conn, "SELECT id, size, isdir FROM dir WHERE path = $1::varchar",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_get_id for path '%s'", path );
+		syslog( LOG_ERR, "Error in psql_get_meta for path '%s'", path );
 		PQclear( res );
 		return -EIO;
 	}
@@ -117,18 +123,21 @@ static int psql_get_id( PGconn *conn, const char *path, int *isdir )
 	}
 	
 	if( PQntuples( res ) > 1 ) {
-		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_id, data inconsistent!", path );
+		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_meta, data inconsistent!", path );
 		PQclear( res );
 		return -EIO;
 	}
 	
-	i_fnum = PQfnumber( res, "id" );
+	i_id = PQfnumber( res, "id" );
+	i_size = PQfnumber( res, "size" );
 	i_isdir = PQfnumber( res, "isdir" );
-	iptr = PQgetvalue( res, 0, i_fnum );
+	iptr = PQgetvalue( res, 0, i_id );
 	id = ntohl( *( (uint32_t *)iptr ) );
+	iptr = PQgetvalue( res, 0, i_size );
+	meta->size = ntohl( *( (uint32_t *)iptr ) );
 	s = PQgetvalue( res, 0, i_isdir );
-	*isdir = 0;
-	if( s[0] == '\001' ) *isdir = 1;
+	meta->isdir = 0;
+	if( s[0] == '\001' ) meta->isdir = 1;
 
 	PQclear( res );
 	
@@ -139,7 +148,7 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
-	int isdir;
+	PgMeta meta;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
@@ -147,25 +156,27 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_get_id( data->conn, path, &isdir );
+	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		return id;
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d", isdir ? "dir" : "file", path, id );
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d", meta.isdir ? "dir" : "file", path, id );
 	}
 	
-	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
 	/* no mode information is stored currently
 	 * TODO: store mode in 'inode' table */
-	if( isdir ) {
+	if( meta.isdir ) {
 		stbuf->st_mode = S_IFDIR | 0775;
 	} else {
 		stbuf->st_mode = S_IFREG | 0664;
 	}
+	stbuf->st_size = meta.size;
+	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
+	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
 	/* TODO: set correctly from table */
 	stbuf->st_nlink = 2;
 	/* set rights to the user running 'pgfuse' */
@@ -236,7 +247,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
-	int isdir;
+	PgMeta meta;
 	char *copy_path;
 	char *parent_path;
 	char *new_file;
@@ -250,7 +261,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		if( *s != '<' ) free( s );
 	}
 	
-	id = psql_get_id( data->conn, path, &isdir );
+	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 && id != -ENOENT ) {
 		return id;
 	}
@@ -261,13 +272,11 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		}
 		
 		/* exists */
-		if( isdir ) {
-			if( isdir ) {
-				/* exists and is a directory, no can do */
-				return -EISDIR;
-			}
-			return -EEXIST;
+		if( meta.isdir ) {
+			/* exists and is a directory, no can do */
+			return -EISDIR;
 		}
+		return -EEXIST;
 	}
 	
 	copy_path = strdup( path );
@@ -278,11 +287,11 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_id( data->conn, parent_path, &isdir );
+	parent_id = psql_get_meta( data->conn, parent_path, &meta );
 	if( parent_id < 0 ) {
 		return parent_id;
 	}
-	if( !isdir ) {
+	if( !meta.isdir ) {
 		return -ENOENT;
 	}
 	
@@ -308,7 +317,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	/* get id and store it, remember it in the hash of open files */
-	id = psql_get_id( data->conn, path, &isdir );
+	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		return res;
 	}
@@ -433,7 +442,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
 	int res;
-	int isdir;
+	PgMeta meta;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Readdir '%s' on '%s'", path, data->mountpoint  );
@@ -442,7 +451,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
 	
-	id = psql_get_id( data->conn, path, &isdir );
+	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		return id;
 	}
@@ -494,7 +503,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	char *new_dir;
 	int parent_id;
 	int res;
-	int isdir;
+	PgMeta meta;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'", path, (unsigned int)mode, data->mountpoint  );
@@ -508,11 +517,11 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_id( data->conn, parent_path, &isdir );
+	parent_id = psql_get_meta( data->conn, parent_path, &meta );
 	if( parent_id < 0 ) {
 		return parent_id;
 	}
-	if( !isdir ) {
+	if( !meta.isdir ) {
 		return -ENOENT;
 	}
 	
