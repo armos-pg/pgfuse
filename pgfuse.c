@@ -239,7 +239,7 @@ static int psql_create_file( PGconn *conn, const int parent_id, const char *path
 	}
 	
 	PQclear( res );
-	
+		
 	return 0;
 }
 
@@ -556,14 +556,13 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 static int psql_write_buf( PGconn *conn, const int id, const char *path, char *buf, size_t len )
 {
 	int param1 = htonl( id );
-	int param2 = htonl( (unsigned int)len );
-	const char *values[3] = { (char *)&param1, (char *)&param2, buf };
-	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), len };
-	int binary[3] = { 1, 1, 1 };
+	const char *values[2] = { (char *)&param1, buf };
+	int lengths[2] = { sizeof( param1 ), len };
+	int binary[2] = { 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "UPDATE dir SET data=$3::bytea,size=$2::int4 WHERE id=$1::int4",
-		3, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "UPDATE data SET data=$2::bytea WHERE id=$1::int4",
+		2, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_write_buf for file '%s': %s", path, PQerrorMessage( conn ) );
@@ -576,11 +575,35 @@ static int psql_write_buf( PGconn *conn, const int id, const char *path, char *b
 	return len;
 }
 
+static int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
+{
+	int param1 = htonl( id );
+	int param2 = htonl( meta.size );
+	const char *values[2] = { (char *)&param1, (char *)&param2 };
+	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
+	int binary[2] = { 1, 1 };
+	PGresult *res;
+	
+	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4 WHERE id=$1::int4",
+		2, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_write_meta for file '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+
+	PQclear( res );
+	
+	return 0;
+}
+
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
 	int res;
+	PgMeta meta;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s'",
@@ -598,7 +621,12 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		return 0;
 	}
 
-	res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
+	meta.size = f->used;
+	res = psql_write_meta( data->conn, f->id, path, meta );
+	
+	if( res >= 0 ) {
+		res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
+	}
 	
 	f->id = 0;
 	f->size = 0;

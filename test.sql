@@ -1,3 +1,5 @@
+DROP RULE dir_insert ON dir;
+DROP TABLE data;
 DROP TABLE dir;
 
 CREATE TABLE dir (
@@ -14,10 +16,22 @@ CREATE TABLE dir (
 	ctime TIMESTAMP WITH TIME ZONE,
 	mtime TIMESTAMP WITH TIME ZONE,
 	atime TIMESTAMP WITH TIME ZONE,
-	size INTEGER DEFAULT 0,
+	size INTEGER DEFAULT 0
+);
+
+CREATE TABLE data (
+	id INTEGER,
+	FOREIGN KEY( id ) REFERENCES dir( id ),
 	data BYTEA
 );
 
+-- make sure file entries always get a data
+-- section in the separate table
+CREATE OR REPLACE RULE "dir_insert" AS ON
+	INSERT TO dir WHERE NEW.isdir = false
+	DO ALSO INSERT INTO data( id )
+	VALUES ( currval( 'dir_id_seq' ) );
+	
+	
 -- self-referencing anchor for root directory
 INSERT INTO dir values( 0, 0, '/', '/', true );
-
