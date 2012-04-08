@@ -432,7 +432,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
 	if( res != f->used ) {
 		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
-			path, f->used, res, data->mountpoint );
+			path, (unsigned int)f->used, res, data->mountpoint );
 		free( f->buf );
 		f->id = 0;
 		return -EIO;
