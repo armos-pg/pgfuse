@@ -26,7 +26,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>		/* for htonl, ntohl */
-#include <search.h>		/* for hcreate, hsearch */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
