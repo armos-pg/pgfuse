@@ -12,4 +12,8 @@
   Use COPY TO/COPY FROM?
 - establish self-containment (with respect to
   a temporarily unavailable Postgresql server)
-
+- minimal SELinux support, i.e. one fix context
+  per mount point
+  unique: 8, opcode: GETXATTR (22), nodeid: 7, insize: 68
+  unique: 8, error: -38 (Function not implemented), outsize: 16
+  lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
