@@ -26,6 +26,8 @@ CREATE TABLE data (
 	data BYTEA
 );
 
+CREATE INDEX data_id_idx ON data( id );
+
 -- make sure file entries always get a data
 -- section in the separate table
 CREATE OR REPLACE RULE "dir_insert" AS ON
