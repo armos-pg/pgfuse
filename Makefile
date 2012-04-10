@@ -13,7 +13,7 @@ CFLAGS += `pkg-config fuse --cflags`
 LDFLAGS = `pkg-config fuse --libs` -lpq
 
 clean:
-	rm -f pgfuse pgfuse.o
+	rm -f pgfuse pgfuse.o pgsql.o
 
 test: pgfuse
 	psql < test.sql
@@ -28,8 +28,11 @@ test: pgfuse
 	-ls -al mnt/dir/dir2
 	fusermount -u mnt
 	
-pgfuse: pgfuse.o
-	gcc -o pgfuse $(LDFLAGS) pgfuse.o
+pgfuse: pgfuse.o pgsql.o
+	gcc -o pgfuse $(LDFLAGS) pgfuse.o pgsql.o
 
-pgfuse.o: pgfuse.c
+pgfuse.o: pgfuse.c pgsql.h
 	gcc -c $(CFLAGS) -o pgfuse.o pgfuse.c
+
+pgsql.o: pgsql.c pgsql.h
+	gcc -c $(CFLAGS) -o pgsql.o pgsql.c

@@ -15,7 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <string.h>		/* for strdup, memset */
+#include <string.h>		/* for strdup, strlen, memset */
 #include <libgen.h>		/* for POSIX compliant basename */
 #include <unistd.h>		/* for exit, geteuid, getegid */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
@@ -23,14 +23,13 @@
 #include <stddef.h>		/* for offsetof */
 #include <syslog.h>		/* for openlog, syslog */
 #include <errno.h>		/* for ENOENT and friends */
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <arpa/inet.h>		/* for htonl, ntohl */
+#include <sys/types.h>		/* size_t */
+#include <sys/stat.h>		/* mode_t */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
 
-#include <libpq-fe.h>		/* for Postgresql database access */
+#include "pgsql.h"		/* implements Postgresql accessers */
 
 /* standard block size, rather a simulation currently */
 #define STANDARD_BLOCK_SIZE 512
@@ -53,11 +52,6 @@ typedef struct PgFuseFile {
 	size_t used;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
 } PgFuseFile;
-
-typedef struct PgMeta {
-	size_t size;		/* the size of the file */
-	int isdir;		/* whether we have a directory or a file */
-} PgMeta;
 
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
 
@@ -93,55 +87,6 @@ static void pgfuse_destroy( void *userdata )
 	}
 }
 
-static int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
-{
-	PGresult *res;
-	int i_id;
-	int i_size;
-	int i_isdir;
-	char *iptr;
-	char *s;
-	int id;
-	
-	const char *values[1] = { path };
-	int lengths[1] = { strlen( path ) };
-	int binary[1] = { 1 };
-	
-	res = PQexecParams( conn, "SELECT id, size, isdir FROM dir WHERE path = $1::varchar",
-		1, NULL, values, lengths, binary, 1 );
-	
-	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_get_meta for path '%s'", path );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	if( PQntuples( res ) == 0 ) {
-		PQclear( res );
-		return -ENOENT;
-	}
-	
-	if( PQntuples( res ) > 1 ) {
-		syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_meta, data inconsistent!", path );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	i_id = PQfnumber( res, "id" );
-	i_size = PQfnumber( res, "size" );
-	i_isdir = PQfnumber( res, "isdir" );
-	iptr = PQgetvalue( res, 0, i_id );
-	id = ntohl( *( (uint32_t *)iptr ) );
-	iptr = PQgetvalue( res, 0, i_size );
-	meta->size = ntohl( *( (uint32_t *)iptr ) );
-	s = PQgetvalue( res, 0, i_isdir );
-	meta->isdir = 0;
-	if( s[0] == '\001' ) meta->isdir = 1;
-
-	PQclear( res );
-	
-	return id;
-}
 
 static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
@@ -217,29 +162,6 @@ static char *flags_to_string( int flags )
 		( flags & O_APPEND ) ? "O_APPEND " : "");
 	
 	return s;
-}
-
-static int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, mode_t mode )
-{
-	int param1 = htonl( parent_id );
-	const char *values[3] = { (char *)&param1, new_file, path };
-	int lengths[3] = { sizeof( parent_id), strlen( new_file ), strlen( path ) };
-	int binary[3] = { 1, 0, 0 };
-	PGresult *res;
-	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, false )",
-		3, NULL, values, lengths, binary, 1 );
-
-	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",
-			path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	PQclear( res );
-		
-	return 0;
 }
 
 static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *fi )
@@ -346,39 +268,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	return res;
 }
 
-static int psql_read_buf( PGconn *conn, const int id, const char *path, char **buf, const size_t len )
-{
-	int param1 = htonl( id );
-	const char *values[1] = { (char *)&param1 };
-	int lengths[2] = { sizeof( param1 ) };
-	int binary[2] = { 1, 1 };
-	PGresult *res;
-	int i_data;
-	int read;
-	
-	res = PQexecParams( conn, "SELECT data FROM DATA WHERE id=$1::int4",
-		1, NULL, values, lengths, binary, 1 );
-	
-	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_read_buf for path '%s'", path );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	if( PQntuples( res ) != 1 ) {
-		syslog( LOG_ERR, "Expecting exactly one data entry for path '%s' in psql_read_buf, data inconsistent!", path );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	i_data = PQfnumber( res, "data" );
-	read = PQgetlength( res, 0, i_data );
-	memcpy( *buf, PQgetvalue( res, 0, i_data ), read );
-
-	PQclear( res );
-	
-	return read;
-}
 
 static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 {
@@ -448,39 +337,6 @@ static int pgfuse_opendir( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
-static int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler )
-{
-	int param1 = htonl( parent_id );
-	const char *values[1] = { (char *)&param1 };
-	int lengths[1] = { sizeof( param1 ) };
-	int binary[1] = { 1 };
-	PGresult *res;
-	int i_name;
-	int i;
-	char *name;
-	
-	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::int4",
-		1, NULL, values, lengths, binary, 1 );
-	
-	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d': %s",
-			parent_id, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	i_name = PQfnumber( res, "name" );
-	for( i = 0; i < PQntuples( res ); i++ ) {
-		name = PQgetvalue( res, i, i_name );
-		if( strcmp( name, "/" ) == 0 ) continue;
-		filler( buf, name, NULL, 0 );
-        }
-        
-	PQclear( res );
-        	
-	return 0;
-}
-
 static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
                            off_t offset, struct fuse_file_info *fi )
 {
@@ -515,28 +371,6 @@ static int pgfuse_releasedir( const char *path, struct fuse_file_info *fi )
 static int pgfuse_fsyncdir( const char *path, int datasync, struct fuse_file_info *fi )
 {
 	/* nothing to do, everything is done in pgfuse_readdir currently */
-	return 0;
-}
-
-static int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode )
-{
-	int param1 = htonl( parent_id );
-	const char *values[3] = { (char *)&param1, new_dir, path };
-	int lengths[3] = { sizeof( parent_id), strlen( new_dir ), strlen( path ) };
-	int binary[3] = { 1, 0, 0 };
-	PGresult *res;
-	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, true )",
-		3, NULL, values, lengths, binary, 1 );
-
-	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_create_dir for path '%s': %s", path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	PQclear( res );
-	
 	return 0;
 }
 
@@ -595,51 +429,6 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 {
 	/* nothing to do currently as the temporary file buffer holds
 	 * all the content in memory */
-	return 0;
-}
-
-static int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len )
-{
-	int param1 = htonl( id );
-	const char *values[2] = { (char *)&param1, buf };
-	int lengths[2] = { sizeof( param1 ), len };
-	int binary[2] = { 1, 1 };
-	PGresult *res;
-	
-	res = PQexecParams( conn, "UPDATE data SET data=$2::bytea WHERE id=$1::int4",
-		2, NULL, values, lengths, binary, 1 );
-
-	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_buf for file '%s': %s", path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-	
-	PQclear( res );
-	
-	return len;
-}
-
-static int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
-{
-	int param1 = htonl( id );
-	int param2 = htonl( meta.size );
-	const char *values[2] = { (char *)&param1, (char *)&param2 };
-	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
-	int binary[2] = { 1, 1 };
-	PGresult *res;
-	
-	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4 WHERE id=$1::int4",
-		2, NULL, values, lengths, binary, 1 );
-
-	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_meta for file '%s': %s", path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-
-	PQclear( res );
-	
 	return 0;
 }
 
