@@ -57,10 +57,8 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	
-	if( data->verbose ) {
-		syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
-			data->mountpoint, data->conninfo );
-	}
+	syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
+		data->mountpoint, data->conninfo );
 	
 	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
 
@@ -77,10 +75,9 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 static void pgfuse_destroy( void *userdata )
 {
 	PgFuseData *data = (PgFuseData *)userdata;
-	if( data->verbose ) {
-		syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
-			data->mountpoint, data->conninfo );
-	}
+
+	syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
+		data->mountpoint, data->conninfo );
 	
 	PQfinish( data->conn );
 }
