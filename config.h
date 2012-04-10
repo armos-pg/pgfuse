@@ -28,6 +28,6 @@
 /* maximum size of a file, rather arbitrary, 2^31 is a current implementation
  * limit, before fixing this, the storing and efficiency has to be rethought
  * anyway.. */
-#define MAX_FILE_SIZE 65535
+#define MAX_FILE_SIZE 1048576
 
 #endif
