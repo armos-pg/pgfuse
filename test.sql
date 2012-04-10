@@ -29,6 +29,10 @@ CREATE TABLE data (
 -- create an index for fast data access
 CREATE INDEX data_id_idx ON data( id );
 
+-- create an index on the parent_id for
+-- directory listings
+CREATE INDEX dir_parent_id_idx ON dir( parent_id );
+
 -- make sure file entries always get a data
 -- section in the separate table
 CREATE OR REPLACE RULE "dir_insert" AS ON
