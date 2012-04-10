@@ -15,3 +15,36 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef HASH_H
+
+#include <stdint.h>		/* for uintptr_t */
+#include <stddef.h>		/* for size_t */
+#include <stdbool.h>		/* for bool */
+
+struct hashnode_t {
+	uintptr_t key;
+	uintptr_t value;
+	struct hashnode_t *next;	/* overflow link */
+};
+
+typedef size_t (*hashfunc_t)( uintptr_t );
+typedef int (*comparefunc_t)( uintptr_t a, uintptr_t b );
+
+typedef struct hashtable_t {
+	size_t size;			/* size of hash table */
+	struct hashnode_t *nodes;	/* memory buffer, allocated outside */
+	hashfunc_t hash;		/* hash function */
+	comparefunc_t compare;		/* compare function */
+	void *mem;			/* optional allocated memory */
+	bool self_allocated;		/* self allocated or not? */
+} hashtable_t;
+
+hashtable_t *hashtable_init_mem( hashtable_t *h, void *mem, size_t size, hashfunc_t hash, comparefunc_t compare);
+hashtable_t *hashtable_init( hashtable_t *h, size_t size, hashfunc_t hash, comparefunc_t compare );
+hashtable_t *hashtable_create( size_t size, hashfunc_t hash, comparefunc_t compare );
+void hashtable_destroy( hashtable_t *h );
+
+size_t hashtable_int_hash( uintptr_t key );
+int hashtable_int_compare( uintptr_t a, uintptr_t b );
+
+#endif
