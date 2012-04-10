@@ -26,6 +26,7 @@ CREATE TABLE data (
 	data BYTEA
 );
 
+-- create an index for fast data access
 CREATE INDEX data_id_idx ON data( id );
 
 -- make sure file entries always get a data

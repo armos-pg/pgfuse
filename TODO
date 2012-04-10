@@ -1,19 +1,38 @@
 - pooling of PQconn
 - thread-synchronization
 - handling of most file system metadata
-- efficient partial writes of bytea
+  - ownership: how is this done depending on
+    per-user or root mounts? think about security
+    here!
+  - mode: simple
+  - times: simple
+  - extended attributes
 - use of asynchonous read/writes
 - what is a transaction? couple to fsync/fdatasync
   for files? other ideas? customizable?
-- how to store binary data? bytea or BLOBs? is
-  there a way to implement streams (append to
+- how to store binary data? 
+  - bytea complete: needs memory on client and server,
+    ok for small files
+  - split bytea (in blocks, as mysqlfs): should give
+    good average performance
+  - BLOBs: streamable, no referencial integrity though,
+    have a weak security model
+  => most likely a split bytea with tunable blocksize
+    (with a small block cache on the side of pgfuse
+    is the way to go) 
+- is there a way to implement streams (append to
   file, or sequential read) efficient together
-  with random access? db securityy on blobs?
-  Use COPY TO/COPY FROM?
+  with random access? Use COPY TO/COPY FROM?
+  => most likely not worth the hazzle. Most streams
+  (but for BLOBS) are mere abstractions in the
+  database binding of the programming language
+  => sticking to traditional libpq C way
+- use prepared statements, measure performance gain
 - establish self-containment (with respect to
   a temporarily unavailable Postgresql server)
-- minimal SELinux support, i.e. one fix context
+- minimal SELinux support, i.e. one fix security context
   per mount point
   unique: 8, opcode: GETXATTR (22), nodeid: 7, insize: 68
   unique: 8, error: -38 (Function not implemented), outsize: 16
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
+- investigate SELinux races
