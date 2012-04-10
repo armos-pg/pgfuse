@@ -29,19 +29,8 @@
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
 
+#include "config.h"		/* compiled in defaults */
 #include "pgsql.h"		/* implements Postgresql accessers */
-
-/* standard block size, rather a simulation currently */
-#define STANDARD_BLOCK_SIZE 512
-
-/* maximal number of open files, limited currently due to a too simple
- * hash table implementation of open file handles */
-#define MAX_NOF_OPEN_FILES 256
-
-/* maximum size of a file, rather arbitrary, 2^31 is a current implementation
- * limit, before fixing this, the storing and efficiency has to be rethought
- * anyway.. */
-#define MAX_FILE_SIZE 65535
 
 /* --- internal file handles */
 
@@ -74,6 +63,13 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 	}
 	
 	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
+
+	data->conn = PQconnectdb( data->conninfo );
+	if( PQstatus( data->conn ) != CONNECTION_OK ) {
+		syslog( LOG_ERR, "Connection to database failed: %s",
+			PQerrorMessage( data->conn ) );
+		PQfinish( data->conn );
+	}
 	
 	return data;
 }
@@ -85,6 +81,8 @@ static void pgfuse_destroy( void *userdata )
 		syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
 			data->mountpoint, data->conninfo );
 	}
+	
+	PQfinish( data->conn );
 }
 
 
@@ -737,6 +735,9 @@ int main( int argc, char *argv[] )
 		exit( EXIT_FAILURE );
 	}
 	
+	/* just test if the connection can be established, do the
+	 * real connection in the fuse init function!
+	 */
 	conn = PQconnectdb( pgfuse.conninfo );
 	if( PQstatus( conn ) != CONNECTION_OK ) {
 		fprintf( stderr, "Connection to database failed: %s",
@@ -744,18 +745,16 @@ int main( int argc, char *argv[] )
 		PQfinish( conn );
 		exit( EXIT_FAILURE );
 	}
+	PQfinish( conn );
 	
-	openlog( basename( argv[0] ), LOG_PID, LOG_USER );
+	openlog( basename( argv[0] ), LOG_PID, LOG_USER );	
 	
 	memset( &userdata, 0, sizeof( PgFuseData ) );
 	userdata.conninfo = pgfuse.conninfo;
-	userdata.conn = conn;
 	userdata.mountpoint = pgfuse.mountpoint;
 	userdata.verbose = pgfuse.verbose;
 	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
-
-	PQfinish( conn );
 	
 	exit( res );
 }

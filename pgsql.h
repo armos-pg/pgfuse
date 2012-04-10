@@ -15,6 +15,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef PGSQL_H
+#define PGSQL_H
+
 #include <sys/types.h>		/* size_t */
 #include <sys/stat.h>		/* mode_t */
 
@@ -40,3 +43,5 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len );
 
 int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta );
+
+#endif
