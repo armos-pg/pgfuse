@@ -21,9 +21,9 @@
 /* standard block size, rather a simulation currently */
 #define STANDARD_BLOCK_SIZE 512
 
-/* maximal number of open files, limited currently due to a too simple
- * hash table implementation of open file handles */
-#define MAX_NOF_OPEN_FILES 256
+/* maximal number of open files, may vary as there may be hashtable
+ * collitions. Must be a prime */
+#define MAX_NOF_OPEN_FILES 257
 
 /* maximum size of a file, rather arbitrary, 2^31 is a current implementation
  * limit, before fixing this, the storing and efficiency has to be rethought
