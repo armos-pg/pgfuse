@@ -26,7 +26,7 @@ Installation
     
 * Mount the FUSE filesystem
 
-    pgfuse "user=someuser dbname=somedb"
+    pgfuse "user=someuser dbname=somedb" <mount point>
     
     If you use a password, store the password in ~/.pgpass:
     
