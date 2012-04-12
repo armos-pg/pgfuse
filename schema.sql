@@ -1,8 +1,3 @@
-DROP RULE dir_insert ON dir;
-DROP RULE dir_remove ON dir;
-DROP TABLE data;
-DROP TABLE dir;
-
 CREATE TABLE dir (
 	id SERIAL PRIMARY KEY,
 	parent_id INTEGER REFERENCES dir( id ),

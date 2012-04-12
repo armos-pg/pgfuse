@@ -14,9 +14,11 @@ LDFLAGS = `pkg-config fuse --libs` -lpq
 
 clean:
 	rm -f pgfuse pgfuse.o pgsql.o
+	psql < clean.sql
 
 test: pgfuse
-	psql < test.sql
+	psql < clean.sql
+	psql < schema.sql
 	-./pgfuse -s -v "" mnt
 	mount | grep pgfuse
 	-mkdir mnt/dir

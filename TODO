@@ -36,3 +36,4 @@
   unique: 8, error: -38 (Function not implemented), outsize: 16
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
 - investigate SELinux races
+- make some performance tests, see http://archive09.linux.com/feature/127055
