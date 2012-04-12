@@ -185,6 +185,28 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 	return 0;
 }
 
+int psql_delete_dir( PGconn *conn, const int id, const char *path )
+{
+	int param1 = htonl( id );
+	const char *values[1] = { (char *)&param1 };
+	int lengths[1] = { sizeof( param1 ) };
+	int binary[1] = { 1 };
+	PGresult *res;
+	
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::int4",
+		1, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_delete_dir for path '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}
+
 int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len )
 {
 	int param1 = htonl( id );

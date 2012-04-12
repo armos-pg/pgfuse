@@ -420,6 +420,34 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	return res;
 }
 
+static int pgfuse_rmdir( const char *path )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	int res;
+	PgMeta meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Rmdir '%s' on '%s'", path, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	if( !meta.isdir ) {
+		return -ENOTDIR;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %d", path, id );
+	}
+			
+	res = psql_delete_dir( data->conn, id, path );
+	
+	return res;
+}
+
 static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 {
 	/* nothing to do currently as the temporary file buffer holds
@@ -565,7 +593,7 @@ static struct fuse_operations pgfuse_oper = {
 	.mknod		= NULL,
 	.mkdir		= pgfuse_mkdir,
 	.unlink		= NULL,
-	.rmdir		= NULL,
+	.rmdir		= pgfuse_rmdir,
 	.symlink	= NULL,
 	.rename		= NULL,
 	.link		= NULL,

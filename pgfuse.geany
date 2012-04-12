@@ -10,10 +10,17 @@ indent_mode=2
 [project]
 name=pgfuse
 base_path=/home/abaumann/projects/pgfuse/
+description=
 
 [long line marker]
 long_line_behaviour=1
 long_line_column=72
 
 [files]
-current_page=-1
+current_page=3
+FILE_NAME_0=0;Make;0;16;1;1;0;/home/abaumann/projects/pgfuse/Makefile;0;8
+FILE_NAME_1=281;None;0;16;1;1;0;/home/abaumann/projects/pgfuse/TODO;0;8
+FILE_NAME_2=0;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgfuse.c;0;8
+FILE_NAME_3=0;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.h;0;8
+FILE_NAME_4=0;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.c;0;8
+FILE_NAME_5=0;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/config.h;0;8

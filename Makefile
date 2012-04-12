@@ -21,11 +21,13 @@ test: pgfuse
 	mount | grep pgfuse
 	-mkdir mnt/dir
 	-mkdir mnt/dir/dir2
+	-mkdir mnt/dir/dir3
 	-echo "hello" > mnt/dir/dir2/afile
 	-cp Makefile mnt/dir/dir2/bfile
 	-cat mnt/dir/dir2/afile
 	-ls -al mnt
 	-ls -al mnt/dir/dir2
+	-rmdir mnt/dir/dir3 
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o
