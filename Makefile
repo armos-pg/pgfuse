@@ -1,7 +1,7 @@
 all: pgfuse
 
 # for debugging
-CFLAGS = -Wall -g -O0
+CFLAGS = -Wall -Werror -g -O0
 # for releasing
 #CFLAGS = -Wall -O2
 
