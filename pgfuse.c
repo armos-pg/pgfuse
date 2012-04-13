@@ -193,11 +193,10 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 			syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
 		}
 		
-		/* exists */
 		if( meta.isdir ) {
-			/* exists and is a directory, no can do */
 			return -EISDIR;
 		}
+		
 		return -EEXIST;
 	}
 	
@@ -232,22 +231,28 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	new_file = basename( copy_path );
 	
 	res = psql_create_file( data->conn, parent_id, path, new_file, mode );
-	
-	/* an error occurred in the DB */
 	if( res < 0 ) {
+		free( copy_path );
 		return res;
 	}
 	
-	/* get id and store it, remember it in the hash of open files */
+	/* get id and store it, remember it in the hash of open files
+	 * the hash function is currently the inode (i.e. the serial
+	 * in the 'id' field module hashtable size, avoiding a much
+	 * more complicated implementation for no good here
+	 */
 	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
+		free( copy_path );
 		return res;
 	}
+	
 	if( data->verbose ) {
 		syslog( LOG_DEBUG, "Id for new file '%s' is %d", path, id );
 	}
 		
 	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].id != 0 ) {
+		free( copy_path );
 		return -EMFILE;
 	}
 	
@@ -258,6 +263,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	f->buf = (char *)malloc( f->size );
 	if( f->buf == NULL ) {
 		f->id = 0;
+		free( copy_path );
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
@@ -294,7 +300,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 		
 	if( meta.isdir ) {
-		/* exists and is a directory, no can do */
 		return -EISDIR;
 	}
 	

@@ -1,0 +1,6 @@
+schema.sql	- create schema for PgFuse in PostgreSQL database
+clean.sql	- remove data and schema from PostgreSQL database
+config.h	- global limitations of the program
+pgfuse.c	- main and hooks for FUSE operations
+pgsql.c		- implementation of PostgreSQL access functions
+pgsql.h		- header file of PostgreSQL access functions

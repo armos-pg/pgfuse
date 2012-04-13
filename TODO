@@ -1,5 +1,7 @@
-- pooling of PQconn
-- thread-synchronization
+TODO list (in order of priority)
+---------
+
+- complete set of operations
 - handling of most file system metadata
   - ownership: how is this done depending on
     per-user or root mounts? think about security
@@ -7,6 +9,8 @@
   - mode: simple
   - times: simple
   - extended attributes
+- pooling of PQconn
+- thread-synchronization (we can ommit the -s flag)
 - use of asynchonous read/writes
 - what is a transaction? couple to fsync/fdatasync
   for files? other ideas? customizable?
@@ -35,5 +39,5 @@
   unique: 8, opcode: GETXATTR (22), nodeid: 7, insize: 68
   unique: 8, error: -38 (Function not implemented), outsize: 16
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
-- investigate SELinux races
-- make some performance tests, see http://archive09.linux.com/feature/127055
+  - investigate SELinux races
+  - make some performance tests, see http://archive09.linux.com/feature/127055

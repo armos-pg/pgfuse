@@ -26,24 +26,32 @@ clean:
 test: pgfuse
 	psql < clean.sql
 	psql < schema.sql
-	-./pgfuse -s -v "" mnt
+	test -d mnt || mkdir mnt
+	./pgfuse -s -v "" mnt
 	mount | grep pgfuse
-	# expect success for all
+	# expect success for making directories
 	-mkdir mnt/dir
 	-mkdir mnt/dir/dir2
 	-mkdir mnt/dir/dir3
+	# expect success on open and file write
 	-echo "hello" > mnt/dir/dir2/afile
 	-cp Makefile mnt/dir/dir2/bfile
+	# expect success on open and file read
 	-cat mnt/dir/dir2/afile
 	-ls -al mnt
 	-ls -al mnt/dir/dir2
-	-rmdir mnt/dir/dir3 
+	# expect success on rmdir
+	-rmdir mnt/dir/dir3
+	# expect success on file removal
+	-rm mnt/dir/dir2/bfile
+	# expect success on rename 
+	-mkdir mnt/dir/dir3
+	-mv mnt/dir/dir3 mnt/dir/dir4
+	-mv mnt/dir/dir2/afile mnt/dir/dir4/bfile
 	# expect fail (directory not empty)
 	-rmdir mnt/dir
 	# expect fail (not a directory)
 	-rmdir mnt/dir/dir2/bfile
-	# expect success
-	-rm mnt/dir/dir2/bfile
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o
