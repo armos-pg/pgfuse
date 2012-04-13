@@ -625,6 +625,46 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	return size;
 }
 
+int pgfuse_truncate( const char* path, off_t offset )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;
+	PgFuseFile *f;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s'",
+			path, (unsigned int)offset, data->mountpoint  );
+	}
+
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	if( meta.isdir ) {
+		return -EISDIR;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id of file '%s' to be truncated is %d", path, id );
+	}
+
+	if( data->read_only ) {
+		return -EROFS;
+	}
+
+	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
+
+	if( f->id == 0 ) {
+		return -EBADF;
+	}
+
+	f->used = offset;
+	
+	return 0;
+}
+
 int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
@@ -687,7 +727,7 @@ static struct fuse_operations pgfuse_oper = {
 	.destroy	= pgfuse_destroy,
 	.access		= pgfuse_access,
 	.create		= pgfuse_create,
-	.truncate	= NULL,
+	.truncate	= pgfuse_truncate,
 	.ftruncate	= pgfuse_ftruncate,
 	.fgetattr	= NULL,
 	.lock		= NULL,
