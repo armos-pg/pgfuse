@@ -30,4 +30,7 @@
  * anyway.. */
 #define MAX_FILE_SIZE 10485760
 
+/* maximum length of a filename , rather arbitrary choice */
+#define MAX_FILENAME_LENGTH 4096
+
 #endif

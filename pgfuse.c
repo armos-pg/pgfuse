@@ -25,9 +25,14 @@
 #include <errno.h>		/* for ENOENT and friends */
 #include <sys/types.h>		/* size_t */
 #include <sys/stat.h>		/* mode_t */
+#include <values.h>		/* for INT_MAX */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
+
+#if FUSE_VERSION < 28
+#error Currently only written for newest FUSE  APIversion (FUSE_VERSION 28)
+#endif
 
 #include "config.h"		/* compiled in defaults */
 #include "pgsql.h"		/* implements Postgresql accessers */
@@ -669,7 +674,7 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	return size;
 }
 
-int pgfuse_truncate( const char* path, off_t offset )
+static int pgfuse_truncate( const char* path, off_t offset )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
@@ -709,7 +714,7 @@ int pgfuse_truncate( const char* path, off_t offset )
 	return 0;
 }
 
-int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
+static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
@@ -734,9 +739,42 @@ int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi 
 	return 0;
 }
 
-int pgfuse_utimens( const char *path, const struct timespec tv[2] )
+static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 {
 	/* TODO: write tv to 'inode' as atime and mtime */
+
+	return 0;
+}
+
+static int pgfuse_statfs( const char *path, struct statvfs *buf )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Statfs called on '%s'",
+			data->mountpoint  );
+	}
+	
+	/* Note: f_frsize, f_favail, f_fsid and f_flag are currently ignored by FUSE */
+	
+	memset( buf, 0, sizeof( struct statvfs ) );
+	
+	buf->f_bsize = STANDARD_BLOCK_SIZE;
+	buf->f_frsize = STANDARD_BLOCK_SIZE;
+	/* Note: it's hard to tell how much space is left in the database
+	 * and how big it is
+	 */
+	buf->f_blocks = INT_MAX;
+	buf->f_bfree = INT_MAX;
+	buf->f_bavail = INT_MAX;
+	buf->f_files = INT_MAX;
+	buf->f_ffree = INT_MAX;
+	buf->f_favail = INT_MAX;
+	if( data->read_only ) {
+		buf->f_flag |= ST_RDONLY;
+	}
+	buf->f_namemax = MAX_FILENAME_LENGTH;
+	
 	return 0;
 }
 
@@ -756,7 +794,7 @@ static struct fuse_operations pgfuse_oper = {
 	.open		= pgfuse_open,
 	.read		= pgfuse_read,
 	.write		= pgfuse_write,
-	.statfs		= NULL,
+	.statfs		= pgfuse_statfs,
 	.flush		= pgfuse_flush,
 	.release	= pgfuse_release,
 	.fsync		= pgfuse_fsync,

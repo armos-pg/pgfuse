@@ -56,6 +56,9 @@ test: pgfuse testfsync
 	# test fdatasync and fsync
 	./testfsync
 	sleep 2
+	# show filesystem stats (statvfs)
+	df -k mnt
+	df -i mnt
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o
