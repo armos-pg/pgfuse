@@ -27,25 +27,25 @@
 
 typedef struct PgMeta {
 	size_t size;		/* the size of the file */
-	int isdir;		/* whether we have a directory or a file */
+	mode_t mode;		/* type and permissions of file/directory */
 } PgMeta;
 
 int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta );
 
-int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, mode_t mode );
+int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta );
+
+int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, const mode_t mode );
 
 int psql_read_buf( PGconn *conn, const int id, const char *path, char **buf, const size_t len );
 
 int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler );
 
-int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode );
+int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, const mode_t mode );
 
 int psql_delete_dir( PGconn *conn, const int id, const char *path );
 
 int psql_delete_file( PGconn *conn, const int id, const char *path );
 
 int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len );
-
-int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta );
 
 #endif

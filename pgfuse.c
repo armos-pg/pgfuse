@@ -45,6 +45,7 @@ typedef struct PgFuseFile {
 	size_t size;		/* current size of the buffer (malloc/realloc) */
 	size_t used;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
+	mode_t mode;		/* type and permissions of file */
 } PgFuseFile;
 
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
@@ -108,18 +109,13 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d", meta.isdir ? "dir" : "file", path, id );
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d",
+			S_ISDIR( meta.mode ) ? "dir" : "file", path, id );
 	}
 	
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
-	/* no mode information is stored currently
-	 * TODO: store mode in 'inode' table */
-	if( meta.isdir ) {
-		stbuf->st_mode = S_IFDIR | 0775;
-	} else {
-		stbuf->st_mode = S_IFREG | 0664;
-	}
+	stbuf->st_mode = meta.mode;
 	stbuf->st_size = meta.size;
 	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
@@ -198,7 +194,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 			syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
 		}
 		
-		if( meta.isdir ) {
+		if( S_ISDIR(meta.mode ) ) {
 			return -EISDIR;
 		}
 		
@@ -217,7 +213,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	if( parent_id < 0 ) {
 		return parent_id;
 	}
-	if( !meta.isdir ) {
+	if( !S_ISDIR(meta.mode ) ) {
 		return -ENOENT;
 	}
 	
@@ -272,6 +268,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
+	f->mode = mode;
 
 	fi->fh = id;
 	
@@ -304,7 +301,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		syslog( LOG_DEBUG, "Id for file '%s' to open is %d", path, id );
 	}
 		
-	if( meta.isdir ) {
+	if( S_ISDIR( meta.mode ) ) {
 		return -EISDIR;
 	}
 	
@@ -333,6 +330,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
+	f->mode = meta.mode;
 	
 	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
 	if( res != f->used ) {
@@ -421,7 +419,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	if( parent_id < 0 ) {
 		return parent_id;
 	}
-	if( !meta.isdir ) {
+	if( !S_ISDIR( meta.mode ) ) {
 		return -ENOENT;
 	}
 	
@@ -438,6 +436,8 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 	
 	new_dir = basename( copy_path );
+
+	mode |= S_IFDIR;
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
 
@@ -461,7 +461,7 @@ static int pgfuse_rmdir( const char *path )
 	if( id < 0 ) {
 		return id;
 	}
-	if( !meta.isdir ) {
+	if( !S_ISDIR( meta.mode ) ) {
 		return -ENOTDIR;
 	}
 	
@@ -493,7 +493,7 @@ static int pgfuse_unlink( const char *path )
 	if( id < 0 ) {
 		return id;
 	}
-	if( meta.isdir ) {
+	if( S_ISDIR( meta.mode ) ) {
 		return -EPERM;
 	}
 	
@@ -542,6 +542,7 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 	res = 0;
 	if( !isdatasync ) {
 		meta.size = f->used;
+		meta.mode = f->mode;
 		res = psql_write_meta( data->conn, f->id, path, meta );
 	}
 	
@@ -589,6 +590,7 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	}
 	
 	meta.size = f->used;
+	meta.mode = f->mode;
 	res = psql_write_meta( data->conn, f->id, path, meta );
 	
 	if( res >= 0 ) {
@@ -691,7 +693,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 		return id;
 	}
 	
-	if( meta.isdir ) {
+	if( S_ISDIR( meta.mode ) ) {
 		return -EISDIR;
 	}
 	

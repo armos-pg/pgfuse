@@ -29,16 +29,15 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	PGresult *res;
 	int i_id;
 	int i_size;
-	int i_isdir;
+	int i_mode;
 	char *iptr;
-	char *s;
 	int id;
 	
 	const char *values[1] = { path };
 	int lengths[1] = { strlen( path ) };
 	int binary[1] = { 1 };
 	
-	res = PQexecParams( conn, "SELECT id, size, isdir FROM dir WHERE path = $1::varchar",
+	res = PQexecParams( conn, "SELECT id, size, mode FROM dir WHERE path = $1::varchar",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -60,30 +59,54 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	
 	i_id = PQfnumber( res, "id" );
 	i_size = PQfnumber( res, "size" );
-	i_isdir = PQfnumber( res, "isdir" );
+	i_mode = PQfnumber( res, "mode" );
 	iptr = PQgetvalue( res, 0, i_id );
 	id = ntohl( *( (uint32_t *)iptr ) );
 	iptr = PQgetvalue( res, 0, i_size );
 	meta->size = ntohl( *( (uint32_t *)iptr ) );
-	s = PQgetvalue( res, 0, i_isdir );
-	meta->isdir = 0;
-	if( s[0] == '\001' ) meta->isdir = 1;
+	iptr = PQgetvalue( res, 0, i_mode );
+	meta->mode = ntohl( *( (uint32_t *)iptr ) );
 
 	PQclear( res );
 	
 	return id;
 }
 
-int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, mode_t mode )
+int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 {
-	int param1 = htonl( parent_id );
-	const char *values[3] = { (char *)&param1, new_file, path };
-	int lengths[3] = { sizeof( parent_id), strlen( new_file ), strlen( path ) };
-	int binary[3] = { 1, 0, 0 };
+	int param1 = htonl( id );
+	int param2 = htonl( meta.size );
+	int param3 = htonl( meta.mode );
+	const char *values[3] = { (char *)&param1, (char *)&param2, (char *)&param3 };
+	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), sizeof( param3 ) };
+	int binary[3] = { 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, false )",
+	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4, mode=$3::int4 WHERE id=$1::int4",
 		3, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_write_meta for file '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+
+	PQclear( res );
+	
+	return 0;
+}
+
+int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, const mode_t mode )
+{
+	int param1 = htonl( parent_id );
+	int param2 = htonl( mode );
+	const char *values[4] = { (const char *)&param1, new_file, path, (const char *)&param2 };
+	int lengths[4] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ) };
+	int binary[4] = { 1, 0, 0, 1 };
+	PGresult *res;
+	
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, mode ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4 )",
+		4, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",
@@ -164,16 +187,17 @@ int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t 
 	return 0;
 }
 
-int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, mode_t mode )
+int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, const mode_t mode )
 {
 	int param1 = htonl( parent_id );
-	const char *values[3] = { (char *)&param1, new_dir, path };
-	int lengths[3] = { sizeof( parent_id), strlen( new_dir ), strlen( path ) };
-	int binary[3] = { 1, 0, 0 };
+	int param2 = htonl( mode );
+	const char *values[4] = { (char *)&param1, new_dir, path, (char *)&param2 };
+	int lengths[4] = { sizeof( param1 ), strlen( new_dir ), strlen( path ), sizeof( param2 ) };
+	int binary[4] = { 1, 0, 0, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, isdir ) VALUES ($1::int4, $2::varchar, $3::varchar, true )",
-		3, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, mode ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4 )",
+		4, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_dir for path '%s': %s", path, PQerrorMessage( conn ) );
@@ -277,27 +301,4 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 	PQclear( res );
 	
 	return len;
-}
-
-int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
-{
-	int param1 = htonl( id );
-	int param2 = htonl( meta.size );
-	const char *values[2] = { (char *)&param1, (char *)&param2 };
-	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
-	int binary[2] = { 1, 1 };
-	PGresult *res;
-	
-	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4 WHERE id=$1::int4",
-		2, NULL, values, lengths, binary, 1 );
-
-	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_meta for file '%s': %s", path, PQerrorMessage( conn ) );
-		PQclear( res );
-		return -EIO;
-	}
-
-	PQclear( res );
-	
-	return 0;
 }
