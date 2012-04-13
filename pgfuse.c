@@ -512,6 +512,45 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 	return 0;
 }
 
+static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PgFuseFile *f;
+	int res;
+	PgMeta meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "%s on file '%s' on '%s'",
+			isdatasync ? "FDataSync" : "FSync", path, data->mountpoint  );
+	}
+
+	if( data->read_only ) {
+		return -EROFS;
+	}
+
+	if( fi->fh == 0 ) {
+		return -EBADF;
+	}
+
+	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+	
+	res = 0;
+	if( !isdatasync ) {
+		meta.size = f->used;
+		res = psql_write_meta( data->conn, f->id, path, meta );
+	}
+	
+	if( res >= 0 ) {
+		res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
+	}
+	
+	if( res < 0 ) {
+		return res;
+	}
+	
+	return 0;
+}
+
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
@@ -720,7 +759,7 @@ static struct fuse_operations pgfuse_oper = {
 	.statfs		= NULL,
 	.flush		= pgfuse_flush,
 	.release	= pgfuse_release,
-	.fsync		= NULL,
+	.fsync		= pgfuse_fsync,
 	.setxattr	= NULL,
 	.listxattr	= NULL,
 	.removexattr	= NULL,

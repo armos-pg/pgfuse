@@ -21,9 +21,10 @@ LDFLAGS = `pkg-config fuse --libs` -lpq
 
 clean:
 	rm -f pgfuse pgfuse.o pgsql.o
+	rm -f testfsync testfsync.o
 	psql < clean.sql
 
-test: pgfuse
+test: pgfuse testfsync
 	psql < clean.sql
 	psql < schema.sql
 	test -d mnt || mkdir mnt
@@ -52,13 +53,24 @@ test: pgfuse
 	-rmdir mnt/dir
 	# expect fail (not a directory)
 	-rmdir mnt/dir/dir2/bfile
+	# test fdatasync and fsync
+	./testfsync
+	sleep 2
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o
-	gcc -o pgfuse pgfuse.o pgsql.o $(LDFLAGS) 
+	$(CC) -o pgfuse pgfuse.o pgsql.o $(LDFLAGS) 
 
 pgfuse.o: pgfuse.c pgsql.h
-	gcc -c $(CFLAGS) -o pgfuse.o pgfuse.c
+	$(CC) -c $(CFLAGS) -o pgfuse.o pgfuse.c
 
 pgsql.o: pgsql.c pgsql.h
-	gcc -c $(CFLAGS) -o pgsql.o pgsql.c
+	$(CC) -c $(CFLAGS) -o pgsql.o pgsql.c
+
+testfsync: testfsync.o
+	$(CC) -o testfsync testfsync.o
+
+testfsync.o: testfsync.c
+	$(CC) -c $(CFLAGS) -o testfsync.o testfsync.c
+	
+	
