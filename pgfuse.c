@@ -448,6 +448,34 @@ static int pgfuse_rmdir( const char *path )
 	return res;
 }
 
+static int pgfuse_unlink( const char *path )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	int res;
+	PgMeta meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Remove file '%s' on '%s'", path, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	if( meta.isdir ) {
+		return -EPERM;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %d", path, id );
+	}
+			
+	res = psql_delete_file( data->conn, id, path );
+	
+	return res;
+}
+
 static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 {
 	/* nothing to do currently as the temporary file buffer holds
@@ -592,7 +620,7 @@ static struct fuse_operations pgfuse_oper = {
 	.readlink	= NULL,
 	.mknod		= NULL,
 	.mkdir		= pgfuse_mkdir,
-	.unlink		= NULL,
+	.unlink		= pgfuse_unlink,
 	.rmdir		= pgfuse_rmdir,
 	.symlink	= NULL,
 	.rename		= NULL,

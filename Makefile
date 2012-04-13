@@ -21,6 +21,7 @@ test: pgfuse
 	psql < schema.sql
 	-./pgfuse -s -v "" mnt
 	mount | grep pgfuse
+	# expect success for all
 	-mkdir mnt/dir
 	-mkdir mnt/dir/dir2
 	-mkdir mnt/dir/dir3
@@ -30,6 +31,12 @@ test: pgfuse
 	-ls -al mnt
 	-ls -al mnt/dir/dir2
 	-rmdir mnt/dir/dir3 
+	# expect fail (directory not empty)
+	-rmdir mnt/dir
+	# expect fail (not a directory)
+	-rmdir mnt/dir/dir2/bfile
+	# expect success
+	-rm mnt/dir/dir2/bfile
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o

@@ -42,6 +42,8 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 
 int psql_delete_dir( PGconn *conn, const int id, const char *path );
 
+int psql_delete_file( PGconn *conn, const int id, const char *path );
+
 int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len );
 
 int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta );

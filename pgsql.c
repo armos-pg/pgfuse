@@ -18,6 +18,7 @@
 #include "pgsql.h"
 
 #include <string.h>		/* for strlen, memcpy, strcmp */
+#include <stdlib.h>		/* for atoi */
 
 #include <syslog.h>		/* for ERR_XXX */
 #include <errno.h>		/* for ENOENT and friends */
@@ -186,6 +187,55 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 }
 
 int psql_delete_dir( PGconn *conn, const int id, const char *path )
+{
+	int param1 = htonl( id );
+	const char *values[1] = { (char *)&param1 };
+	int lengths[1] = { sizeof( param1 ) };
+	int binary[1] = { 1 };
+	PGresult *res;
+	char *iptr;
+	int count;
+	
+	res = PQexecParams( conn, "SELECT COUNT(*) FROM dir where parent_id=$1::int4",
+		1, NULL, values, lengths, binary, 0 );
+		
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_delete_dir for path '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+
+	if( PQntuples( res ) != 1 ) {
+		syslog( LOG_ERR, "Expecting COUNT(*) to return 1 tupe, weird!" );
+		PQclear( res );
+		return -EIO;
+	}
+
+	iptr = PQgetvalue( res, 0, 0 );
+	count = atoi( iptr );
+	
+	if( count > 0 ) {
+		PQclear( res );
+		return -ENOTEMPTY;
+	}
+
+	PQclear( res );
+		
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::int4",
+		1, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_delete_dir for path '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}
+
+int psql_delete_file( PGconn *conn, const int id, const char *path )
 {
 	int param1 = htonl( id );
 	const char *values[1] = { (char *)&param1 };
