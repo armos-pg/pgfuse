@@ -437,6 +437,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	
 	new_dir = basename( copy_path );
 
+	/* not set by fuse */
 	mode |= S_IFDIR;
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
