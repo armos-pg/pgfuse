@@ -1,13 +1,20 @@
 all: pgfuse
 
 # for debugging
-CFLAGS = -Wall -Werror -g -O0
+CFLAGS = -Wall -Werror -g -O0 -pthread
 # for releasing
 #CFLAGS = -Wall -O2
 
 # declare version of FUSE API we want to program against
-CFLAGS += -DFUSE_USE_VERSION=26
+CFLAGS += -DFUSE_USE_VERSION=29
 
+CFLAGS += -D_FILE_OFFSET_BITS=64
+
+# debug
+#CFLAGS += -I/usr/local/include/fuse
+#LDFLAGS = -lpq /usr/local/lib/libfuse.a -pthread -ldl -lrt
+
+# release
 # use pkg-config to detemine compiler/linker flags for libfuse
 CFLAGS += `pkg-config fuse --cflags`
 LDFLAGS = `pkg-config fuse --libs` -lpq
@@ -40,7 +47,7 @@ test: pgfuse
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o
-	gcc -o pgfuse $(LDFLAGS) pgfuse.o pgsql.o
+	gcc -o pgfuse pgfuse.o pgsql.o $(LDFLAGS) 
 
 pgfuse.o: pgfuse.c pgsql.h
 	gcc -c $(CFLAGS) -o pgfuse.o pgfuse.c

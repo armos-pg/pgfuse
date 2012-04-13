@@ -17,13 +17,13 @@ long_line_behaviour=1
 long_line_column=72
 
 [files]
-current_page=3
-FILE_NAME_0=383;Make;0;16;1;1;0;/home/abaumann/projects/pgfuse/Makefile;0;8
+current_page=4
+FILE_NAME_0=504;Make;0;16;1;1;0;/home/abaumann/projects/pgfuse/Makefile;0;8
 FILE_NAME_1=1691;None;0;16;1;1;0;/home/abaumann/projects/pgfuse/TODO;0;8
 FILE_NAME_2=111;None;0;16;1;1;0;/home/abaumann/projects/pgfuse/INSTALL;0;8
 FILE_NAME_3=811;None;0;16;1;1;0;/home/abaumann/projects/pgfuse/README;0;8
-FILE_NAME_4=16131;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgfuse.c;0;8
-FILE_NAME_5=1620;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.h;0;8
-FILE_NAME_6=5604;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.c;0;8
+FILE_NAME_4=11642;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgfuse.c;0;8
+FILE_NAME_5=1644;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.h;0;8
+FILE_NAME_6=5538;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/pgsql.c;0;8
 FILE_NAME_7=0;C;0;16;1;1;0;/home/abaumann/projects/pgfuse/config.h;0;8
 FILE_NAME_8=0;SQL;0;16;1;1;0;/home/abaumann/projects/pgfuse/schema.sql;0;8

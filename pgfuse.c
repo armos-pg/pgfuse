@@ -51,14 +51,16 @@ typedef struct PgFuseData {
 	char *conninfo;		/* connection info as used in PQconnectdb */
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	PGconn *conn;		/* the database handle to operate on */
+	int read_only;		/* whether the mount point is read-only */
 } PgFuseData;
 
 static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	
-	syslog( LOG_INFO, "Mounting file system on '%s' (%s)",
-		data->mountpoint, data->conninfo );
+	syslog( LOG_INFO, "Mounting file system on '%s' ('%s', %s)",
+		data->mountpoint, data->conninfo,
+		data->read_only ? "read-only" : "read-write" );
 	
 	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
 
@@ -177,6 +179,10 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		if( *s != '<' ) free( s );
 	}
 	
+	if( data->read_only ) {
+		return -EROFS;
+	}
+	
 	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 && id != -ENOENT ) {
 		return id;
@@ -291,7 +297,13 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		/* exists and is a directory, no can do */
 		return -EISDIR;
 	}
-
+	
+	if( data->read_only ) {
+		if( ( fi->flags & O_ACCMODE ) != O_RDONLY ) {
+			return -EROFS;
+		}
+	}
+	
 	if( meta.size > MAX_FILE_SIZE ) {
 		return -EFBIG;
 	}			
@@ -382,6 +394,10 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'", path, (unsigned int)mode, data->mountpoint  );
 	}
+
+	if( data->read_only ) {
+		return -EROFS;
+	}
 	
 	copy_path = strdup( path );
 	if( copy_path == NULL ) {
@@ -430,7 +446,7 @@ static int pgfuse_rmdir( const char *path )
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Rmdir '%s' on '%s'", path, data->mountpoint  );
 	}
-	
+
 	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		return id;
@@ -442,7 +458,11 @@ static int pgfuse_rmdir( const char *path )
 	if( data->verbose ) {
 		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %d", path, id );
 	}
-			
+
+	if( data->read_only ) {
+		return -EROFS;
+	}
+				
 	res = psql_delete_dir( data->conn, id, path );
 	
 	return res;
@@ -469,6 +489,10 @@ static int pgfuse_unlink( const char *path )
 	
 	if( data->verbose ) {
 		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %d", path, id );
+	}
+
+	if( data->read_only ) {
+		return -EROFS;
 	}
 			
 	res = psql_delete_file( data->conn, id, path );
@@ -506,6 +530,15 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		return 0;
 	}
 
+	if( data->read_only ) {
+		f->id = 0;
+		f->size = 0;
+		free( f->buf );
+		f->used = 0;
+		
+		return 0;
+	}
+	
 	meta.size = f->used;
 	res = psql_write_meta( data->conn, f->id, path, meta );
 	
@@ -536,6 +569,10 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		return -EBADF;
 	}
 
+	if( data->read_only ) {
+		return -EBADF;
+	}
+	
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
 	if( offset + size > f->size ) {
@@ -600,6 +637,10 @@ int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi 
 
 	if( fi->fh == 0 ) {
 		return -EBADF;
+	}
+
+	if( data->read_only ) {
+		return -EROFS;
 	}
 	
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
@@ -667,9 +708,7 @@ typedef struct PgFuse {
 	int read_only;		/* whether to mount read-only */
 } PgFuse;
 
-static PgFuse pgfuse;
-
-#define PGFUSE_OPT( t, p, v ) { t, offsetof( struct PgFuse, p ), v }
+#define PGFUSE_OPT( t, p, v ) { t, offsetof( PgFuse, p ), v }
 
 enum {
 	KEY_HELP,
@@ -678,7 +717,7 @@ enum {
 };
 
 static struct fuse_opt pgfuse_opts[] = {
-	PGFUSE_OPT( 	"read_only",	read_only, 0 ),
+	PGFUSE_OPT( 	"ro",		read_only, 1 ),
 	FUSE_OPT_KEY( 	"-h",		KEY_HELP ),
 	FUSE_OPT_KEY( 	"--help",	KEY_HELP ),
 	FUSE_OPT_KEY( 	"-v",		KEY_VERBOSE ),
@@ -690,17 +729,19 @@ static struct fuse_opt pgfuse_opts[] = {
 
 static int pgfuse_opt_proc( void* data, const char* arg, int key,
                             struct fuse_args* outargs )
-{                            
+{
+	PgFuse *pgfuse = (PgFuse *)data;
+
 	switch( key ) {
 		case FUSE_OPT_KEY_OPT:
 			return 1;
 		
 		case FUSE_OPT_KEY_NONOPT:
-			if( pgfuse.conninfo == NULL ) {
-				pgfuse.conninfo = strdup( arg );
+			if( pgfuse->conninfo == NULL ) {
+				pgfuse->conninfo = strdup( arg );
 				return 0;
-			} else if( pgfuse.mountpoint == NULL ) {
-				pgfuse.mountpoint = strdup( arg );
+			} else if( pgfuse->mountpoint == NULL ) {
+				pgfuse->mountpoint = strdup( arg );
 				return 1;
 			} else {
 				fprintf( stderr, "%s, only two arguments allowed: Postgresql connection data and mountpoint\n", basename( outargs->argv[0] ) );
@@ -708,15 +749,15 @@ static int pgfuse_opt_proc( void* data, const char* arg, int key,
 			}
 			
 		case KEY_HELP:
-			pgfuse.print_help = 1;
+			pgfuse->print_help = 1;
 			return -1;
 		
 		case KEY_VERBOSE:
-			pgfuse.verbose = 1;
+			pgfuse->verbose = 1;
 			return 0;
 			
 		case KEY_VERSION:
-			pgfuse.print_version = 1;
+			pgfuse->print_version = 1;
 			return -1;
 		
 		default:
@@ -748,7 +789,7 @@ static void print_usage( char* progname )
 		"    -V   --version         print version\n"
 		"\n"
 		"PgFuse options:\n"
-		"    read_only           mount filesystem read-only, do not change data in database\n"
+		"    ro                     mount filesystem read-only, do not change data in database\n"
 		"\n",
 		progname
 	);
@@ -761,6 +802,7 @@ int main( int argc, char *argv[] )
 	int res;
 	PGconn *conn;
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
+	PgFuse pgfuse;
 	PgFuseData userdata;
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
@@ -781,7 +823,7 @@ int main( int argc, char *argv[] )
 		}
 		exit( EXIT_FAILURE );
 	}
-	
+		
 	if( pgfuse.conninfo == NULL ) {
 		fprintf( stderr, "Missing Postgresql connection data\n" );
 		fprintf( stderr, "see '%s -h' for usage\n", basename( argv[0] ) );
@@ -806,6 +848,7 @@ int main( int argc, char *argv[] )
 	userdata.conninfo = pgfuse.conninfo;
 	userdata.mountpoint = pgfuse.mountpoint;
 	userdata.verbose = pgfuse.verbose;
+	userdata.read_only = pgfuse.read_only;
 	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
 	
