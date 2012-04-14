@@ -5,13 +5,14 @@ CREATE TABLE dir (
 	path TEXT,
 	UNIQUE( name, parent_id ),
 	UNIQUE( path ),
+	size INTEGER DEFAULT 0,
 	mode INTEGER NOT NULL DEFAULT 0,
 	uid INTEGER NOT NULL DEFAULT 0,
 	gid INTEGER NOT NULL DEFAULT 0,
+	inuse BOOL DEFAULT false,
 	ctime TIMESTAMP WITH TIME ZONE,
 	mtime TIMESTAMP WITH TIME ZONE,
-	atime TIMESTAMP WITH TIME ZONE,
-	size INTEGER DEFAULT 0
+	atime TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE data (
@@ -46,4 +47,5 @@ CREATE OR REPLACE RULE "dir_remove" AS ON
 -- self-referencing anchor for root directory
 -- 16895 = S_IFDIR and 0777 permissions
 -- TODO: should be done from outside, see note above
-INSERT INTO dir values( 0, 0, '/', '/', 16895 );
+INSERT INTO dir( id, parent_id, name, path, size, mode, uid, gid )
+	VALUES( 0, 0, '/', '/', 0, 16895, 0, 0 );
