@@ -45,7 +45,7 @@ typedef struct PgFuseFile {
 	size_t size;		/* current size of the buffer (malloc/realloc) */
 	size_t used;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
-	mode_t mode;		/* type and permissions of file */
+	PgMeta meta;		/* the current filenode metadata */
 } PgFuseFile;
 
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
@@ -122,8 +122,8 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	/* TODO: set correctly from table */
 	stbuf->st_nlink = 2;
 	/* set rights to the user running 'pgfuse' */
-	stbuf->st_uid = geteuid( );
-	stbuf->st_gid = getegid( );
+	stbuf->st_uid = meta.uid;
+	stbuf->st_gid = meta.gid;
 	
 	return 0;
 }
@@ -231,7 +231,13 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	new_file = basename( copy_path );
 	
-	res = psql_create_file( data->conn, parent_id, path, new_file, mode );
+	meta.size = 0;
+	meta.mode = mode;
+	/* TODO: use FUSE context */
+	meta.uid = geteuid( );
+	meta.gid = getegid( );
+	
+	res = psql_create_file( data->conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
 		free( copy_path );
 		return res;
@@ -268,7 +274,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
-	f->mode = mode;
+	f->meta = meta;
 
 	fi->fh = id;
 	
@@ -330,7 +336,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
-	f->mode = meta.mode;
+	f->meta = meta;
 	
 	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
 	if( res != f->used ) {
@@ -437,10 +443,13 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	
 	new_dir = basename( copy_path );
 
-	/* not set by fuse */
-	mode |= S_IFDIR;
+	meta.size = 0;
+	meta.mode = mode | S_IFDIR; /* S_IFDIR is not set by fuse */
+	/* TODO: use FUSE context */
+	meta.uid = geteuid( );
+	meta.gid = getegid( );
 	
-	res = psql_create_dir( data->conn, parent_id, path, new_dir, mode );
+	res = psql_create_dir( data->conn, parent_id, path, new_dir, meta );
 
 	free( copy_path );
 	
@@ -542,8 +551,8 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 	
 	res = 0;
 	if( !isdatasync ) {
-		meta.size = f->used;
-		meta.mode = f->mode;
+		f->meta.size = f->used;
+		meta = f->meta;
 		res = psql_write_meta( data->conn, f->id, path, meta );
 	}
 	
@@ -590,8 +599,8 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		return 0;
 	}
 	
-	meta.size = f->used;
-	meta.mode = f->mode;
+	f->meta.size = f->used;
+	meta = f->meta;
 	res = psql_write_meta( data->conn, f->id, path, meta );
 	
 	if( res >= 0 ) {

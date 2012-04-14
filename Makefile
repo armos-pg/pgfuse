@@ -55,7 +55,6 @@ test: pgfuse testfsync
 	-rmdir mnt/dir/dir2/bfile
 	# test fdatasync and fsync
 	./testfsync
-	sleep 2
 	# show filesystem stats (statvfs)
 	df -k mnt
 	df -i mnt
