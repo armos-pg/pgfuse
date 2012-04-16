@@ -403,7 +403,8 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'", path, (unsigned int)mode, data->mountpoint  );
+		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'",
+			path, (unsigned int)mode, data->mountpoint  );
 	}
 
 	if( data->read_only ) {
@@ -797,7 +798,26 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 
 static int pgfuse_chmod( const char *path, mode_t mode )
 {
-	return -EPERM;
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;	
+	int res;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Chmod on '%s' to mode '%o' on '%s'",
+			path, (unsigned int)mode, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	meta.mode = mode;
+	
+	res = psql_write_meta( data->conn, id, path, meta );
+
+	return res;
 }
 
 static struct fuse_operations pgfuse_oper = {

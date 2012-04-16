@@ -43,6 +43,9 @@ test: pgfuse testfsync
 	-ls -al mnt/dir/dir2
 	# expect success on rmdir
 	-rmdir mnt/dir/dir3
+	# expect success on chmod
+	-chmod 777 mnt/dir/dir2/bfile
+	-ls -al mnt/dir/dir2/bfile
 	# expect success on file removal
 	-rm mnt/dir/dir2/bfile
 	# expect success on rename 
