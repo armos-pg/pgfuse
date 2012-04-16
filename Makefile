@@ -47,8 +47,8 @@ test: pgfuse testfsync
 	-chmod 777 mnt/dir/dir2/bfile
 	-ls -al mnt/dir/dir2/bfile
 	# expect success on symlink creation
-	-ln -s mnt/dir/dir2/bfile mnt/dir/clink
-	-ls -al mnt/dir/clink
+	-ln -s bfile mnt/dir/dir2/clink
+	-ls -al mnt/dir/dir2/clink
 	# expect success on file removal
 	-rm mnt/dir/dir2/bfile
 	# expect success on rename 
