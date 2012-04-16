@@ -19,6 +19,7 @@
 #define PGSQL_H
 
 #include <sys/types.h>		/* size_t */
+#include <sys/time.h>		/* for struct timespec */
 #include <sys/stat.h>		/* mode_t */
 
 #include <fuse.h>		/* for user-land filesystem */
@@ -30,6 +31,9 @@ typedef struct PgMeta {
 	mode_t mode;		/* type and permissions of file/directory */
 	uid_t uid;		/* owner of the file/directory */
 	gid_t gid;		/* group owner of the file/directory */
+	struct timespec ctime;	/* creation time */
+	struct timespec mtime;	/* last modification time */
+	struct timespec atime;	/* last access time */
 } PgMeta;
 
 int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta );

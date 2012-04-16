@@ -59,6 +59,26 @@ typedef struct PgFuseData {
 	int read_only;		/* whether the mount point is read-only */
 } PgFuseData;
 
+static struct timespec now( void )
+{
+	int res;
+	struct timeval t;
+	struct timezone tz;
+	struct timespec s;
+	
+	res = gettimeofday( &t, &tz );
+	if( res != 0 ) {
+		s.tv_sec = 0;
+		s.tv_nsec = 0;
+		return s;
+	}
+	
+	s.tv_sec = t.tv_sec;
+	s.tv_nsec = t.tv_usec * 1000;
+	
+	return s;
+}
+
 static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
@@ -271,6 +291,9 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	/* TODO: use FUSE context */
 	meta.uid = geteuid( );
 	meta.gid = getegid( );
+	meta.ctime = now( );
+	meta.atime = now( );
+	meta.mtime = now( );
 	
 	res = psql_create_file( data->conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
@@ -482,6 +505,9 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	/* TODO: use FUSE context */
 	meta.uid = geteuid( );
 	meta.gid = getegid( );
+	meta.ctime = now( );
+	meta.atime = now( );
+	meta.mtime = now( );
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, meta );
 
@@ -793,13 +819,6 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	return 0;
 }
 
-static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
-{
-	/* TODO: write tv to 'inode' as atime and mtime */
-
-	return 0;
-}
-
 static int pgfuse_statfs( const char *path, struct statvfs *buf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
@@ -991,6 +1010,32 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 	
 	return 0;
 }
+
+static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;	
+	int res;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Utimens on '%s' to access time '%d' and modification time '%d' on '%s'",
+			path, (unsigned int)tv[0].tv_sec, (unsigned int)tv[1].tv_sec, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+		
+	meta.atime = tv[0];
+	meta.mtime = tv[1];
+	
+	res = psql_write_meta( data->conn, id, path, meta );
+
+	return res;
+}
+
 
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
