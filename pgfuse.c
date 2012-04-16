@@ -820,6 +820,31 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 	return res;
 }
 
+static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;	
+	int res;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Chown on '%s' to uid '%d' and gid '%d' on '%s'",
+			path, (unsigned int)uid, (unsigned int)gid, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	meta.uid = uid;
+	meta.gid = gid;
+	
+	res = psql_write_meta( data->conn, id, path, meta );
+
+	return res;
+}
+
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
 	.readlink	= NULL,
@@ -831,7 +856,7 @@ static struct fuse_operations pgfuse_oper = {
 	.rename		= NULL,
 	.link		= NULL,
 	.chmod		= pgfuse_chmod,
-	.chown		= NULL,
+	.chown		= pgfuse_chown,
 	.utime		= NULL,		/* deprecated in favour of utimes */
 	.open		= pgfuse_open,
 	.read		= pgfuse_read,
