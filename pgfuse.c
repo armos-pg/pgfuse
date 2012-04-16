@@ -45,7 +45,6 @@ typedef struct PgFuseFile {
 	size_t size;		/* current size of the buffer (malloc/realloc) */
 	size_t used;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
-	PgMeta meta;		/* the current filenode metadata */
 } PgFuseFile;
 
 static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
@@ -274,7 +273,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
-	f->meta = meta;
 
 	fi->fh = id;
 	
@@ -336,7 +334,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		return -ENOMEM;
 	}
 	f->ref_count = 1;
-	f->meta = meta;
 	
 	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
 	if( res != f->used ) {
@@ -549,10 +546,13 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
-	res = 0;
+	
 	if( !isdatasync ) {
-		f->meta.size = f->used;
-		meta = f->meta;
+		res = psql_get_meta( data->conn, path, &meta );
+		if( res < 0 ) {
+			return res;
+		}
+		meta.size = f->used;
 		res = psql_write_meta( data->conn, f->id, path, meta );
 	}
 	
@@ -599,10 +599,15 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		return 0;
 	}
 	
-	f->meta.size = f->used;
-	meta = f->meta;
-	res = psql_write_meta( data->conn, f->id, path, meta );
+	res = psql_get_meta( data->conn, path, &meta );
+	if( res < 0 ) {
+		syslog( LOG_CRIT, "Error reading metadata while closing the file '%s' on '%s'! Metadata may be corrupt now!",
+			path, data->mountpoint );
+		memset( &meta, 0, sizeof( meta ) );
+	}
 	
+	meta.size = f->used;
+	res = psql_write_meta( data->conn, f->id, path, meta );
 	if( res >= 0 ) {
 		res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
 	}
@@ -790,6 +795,11 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	return 0;
 }
 
+static int pgfuse_chmod( const char *path, mode_t mode )
+{
+	return -EPERM;
+}
+
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
 	.readlink	= NULL,
@@ -800,9 +810,9 @@ static struct fuse_operations pgfuse_oper = {
 	.symlink	= NULL,
 	.rename		= NULL,
 	.link		= NULL,
-	.chmod		= NULL,
+	.chmod		= pgfuse_chmod,
 	.chown		= NULL,
-	.utime		= NULL,
+	.utime		= NULL,		/* deprecated in favour of utimes */
 	.open		= pgfuse_open,
 	.read		= pgfuse_read,
 	.write		= pgfuse_write,
