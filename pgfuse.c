@@ -89,6 +89,42 @@ static void pgfuse_destroy( void *userdata )
 	PQfinish( data->conn );
 }
 
+static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_file_info *fi )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "FgetAttrs '%s' on '%s'", path, data->mountpoint );
+	}
+	
+	memset( stbuf, 0, sizeof( struct stat ) );
+
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d",
+			S_ISDIR( meta.mode ) ? "dir" : "file", path, id );
+	}
+	
+	stbuf->st_ino = id;
+	stbuf->st_blocks = 0;
+	stbuf->st_mode = meta.mode;
+	stbuf->st_size = meta.size;
+	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
+	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
+	/* TODO: set correctly from table */
+	stbuf->st_nlink = 2;
+	/* set rights to the user running 'pgfuse' */
+	stbuf->st_uid = meta.uid;
+	stbuf->st_gid = meta.gid;
+	
+	return 0;
+}
 
 static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
@@ -989,7 +1025,7 @@ static struct fuse_operations pgfuse_oper = {
 	.create		= pgfuse_create,
 	.truncate	= pgfuse_truncate,
 	.ftruncate	= pgfuse_ftruncate,
-	.fgetattr	= NULL,
+	.fgetattr	= pgfuse_fgetattr,
 	.lock		= NULL,
 	.utimens	= pgfuse_utimens,
 	.bmap		= NULL,
