@@ -1,6 +1,7 @@
 TODO list (in order of priority)
 ---------
 
+- more charsets for file, symlink and directory names
 - complete set of operations
 - handling of most file system metadata
   - ownership: how is this done depending on

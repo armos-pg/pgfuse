@@ -109,16 +109,17 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, PgMeta meta )
 {
 	int param1 = htonl( parent_id );
-	int param2 = htonl( meta.mode );
-	int param3 = htonl( meta.uid );
-	int param4 = htonl( meta.gid );
-	const char *values[6] = { (const char *)&param1, new_file, path, (const char *)&param2, (const char *)&param3, (const char *)&param4 };
-	int lengths[6] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ) };
-	int binary[6] = { 1, 0, 0, 1, 1, 1 };
+	int param2 = htonl( meta.size );
+	int param3 = htonl( meta.mode );
+	int param4 = htonl( meta.uid );
+	int param5 = htonl( meta.gid );
+	const char *values[7] = { (const char *)&param1, new_file, path, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5 };
+	int lengths[7] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ) };
+	int binary[7] = { 1, 0, 0, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, mode, uid, gid ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4 )",
-		6, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, size, mode, uid, gid ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4, $7::int4 )",
+		7, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",
@@ -128,7 +129,7 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	}
 	
 	PQclear( res );
-
+	
 	return 0;
 }
 

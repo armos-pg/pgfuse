@@ -845,19 +845,130 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	return res;
 }
 
+static int pgfuse_symlink( const char *from, const char *to )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	char *copy_to;
+	char *parent_path;
+	char *symlink;
+	int parent_id;
+	int res;
+	int id;
+	PgMeta meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Symlink from '%s' to '%s' on '%s'",
+			from, to, data->mountpoint  );
+	}
+
+	if( data->read_only ) {
+		return -EROFS;
+	}
+	
+	copy_to = strdup( to );
+	if( copy_to == NULL ) {
+		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
+		return -ENOMEM;
+	}
+	
+	parent_path = dirname( copy_to );
+
+	parent_id = psql_get_meta( data->conn, parent_path, &meta );
+	if( parent_id < 0 ) {
+		return parent_id;
+	}
+	if( !S_ISDIR( meta.mode ) ) {
+		return -ENOENT;
+	}
+	
+	if( data->verbose ) {
+		syslog( LOG_DEBUG, "Parent_id for symlink '%s' is %d", to, parent_id );
+	}
+	
+	free( copy_to );
+	copy_to = strdup( to );
+	if( copy_to == NULL ) {
+		free( parent_path );
+		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
+		return -ENOMEM;
+	}
+	
+	symlink = basename( copy_to );
+
+	meta.size = strlen( from );	/* size = length of path */
+	meta.mode = 0777 | S_IFLNK; 	/* symlinks have no modes per se */
+	/* TODO: use FUSE context */
+	meta.uid = geteuid( );
+	meta.gid = getegid( );
+	
+	res = psql_create_file( data->conn, parent_id, to, symlink, meta );
+	if( res < 0 ) {
+		free( copy_to );
+		return res;
+	}
+	
+	id = psql_get_meta( data->conn, to, &meta );
+	if( id < 0 ) {
+		free( copy_to );
+		return id;
+	}
+
+	res = psql_write_buf( data->conn, id, to, from, strlen( from ) );
+	if( res < 0 ) {
+		free( copy_to );
+		return res;
+	}
+	
+	if( res != strlen( from ) ) {
+		return -EIO;
+	}
+
+	free( copy_to );
+	
+	return 0;
+}
+
+static int pgfuse_readlink( const char *path, char *buf, size_t size )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	PgMeta meta;
+	int res;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Dereferencing symlink '%s' on '%s'",
+			path, data->mountpoint  );
+	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	if( !S_ISLNK( meta.mode ) ) {
+		return -ENOENT;
+	}
+	
+	res = psql_read_buf( data->conn, id, path, &buf, size );
+	if( res < 0 ) {
+		return res;
+	}
+	
+	return 0;
+}
+
 static struct fuse_operations pgfuse_oper = {
 	.getattr	= pgfuse_getattr,
-	.readlink	= NULL,
-	.mknod		= NULL,
+	.readlink	= pgfuse_readlink,
+	.mknod		= NULL,		/* not used, we use 'create' */
 	.mkdir		= pgfuse_mkdir,
 	.unlink		= pgfuse_unlink,
 	.rmdir		= pgfuse_rmdir,
-	.symlink	= NULL,
+	.symlink	= pgfuse_symlink,
 	.rename		= NULL,
 	.link		= NULL,
 	.chmod		= pgfuse_chmod,
 	.chown		= pgfuse_chown,
-	.utime		= NULL,		/* deprecated in favour of utimes */
+	.utime		= NULL,		/* deprecated in favour of 'utimes' */
 	.open		= pgfuse_open,
 	.read		= pgfuse_read,
 	.write		= pgfuse_write,
