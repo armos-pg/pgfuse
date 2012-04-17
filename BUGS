@@ -1,5 +1,3 @@
-- no non-ASCII characters in filenames (at least not tested)
-- symlinks across directory boundaries don't work
 - no hard-links
 - not able to store files bigger than MAX_FILE_SIZE (10MB)
 - doesn't run multi-threaded currently (always give the -s option!)
