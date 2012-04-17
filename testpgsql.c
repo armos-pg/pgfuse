@@ -21,7 +21,7 @@
 #include <string.h>		/* for strcmp */
 #include <stdbool.h>		/* for bool */
 #include <stdint.h>		/* for uint64_t */
-#include <endian.h>		/* for be64toh (BSD-ism, but easy to port if necessary) */
+#include <endian.h>		/* for be64toh (GNU/BSD-ism, but easy to port if necessary) */
 #include <sys/time.h>		/* for struct timespec */
 
 /* January 1, 2000, 00:00:00 UTC (in Unix epoch seconds) */
@@ -53,12 +53,11 @@ int main( int argc, char *argv[] )
 	const char *value;
 	bool integer_datetimes;
 	PGresult *res;
-	uint64_t param1 = 0;
+	uint64_t tmp;
+	uint64_t param1;
 	const char *values[1] = { (const char *)&param1 };
 	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
-	char *data;
-	struct timespec time;
 	struct timespec now;
 	
 	if( argc != 2 ) {
@@ -83,7 +82,12 @@ int main( int argc, char *argv[] )
 	
 	integer_datetimes = strcmp( value, "on" ) == 0 ? true : false;
 	printf( "integer_datetimes: %s\n", integer_datetimes ? "true" : "false" );
-	
+
+	now = get_now( );
+	tmp = ( (uint64_t)now.tv_sec - POSTGRES_EPOCH_DATE ) * 1000000;
+	tmp += now.tv_nsec / 1000;
+	param1 = htobe64( tmp );
+		
 	res = PQexecParams( conn, "SELECT now(),$1::timestamp",
 		1, NULL, values, lengths, binary, 1 );
 	
@@ -111,18 +115,29 @@ int main( int argc, char *argv[] )
 	 * unless changed at compilation time
 	 */
 	if( integer_datetimes ) {
-		uint64_t t;
+		char *data_db;
+		char *data_select;
+		struct timespec time_db;
+		struct timespec time_select;
+		uint64_t t_db;
+		uint64_t t_select;
 		
-		data = PQgetvalue( res, 0, 0 );
+		data_db = PQgetvalue( res, 0, 0 );
 		
-		t = be64toh( *( (uint64_t *)data ) );
+		t_db = be64toh( *( (uint64_t *)data_db ) );
 		
-		time.tv_sec = POSTGRES_EPOCH_DATE + t / 1000000;
-		time.tv_nsec = ( t % 1000000 ) * 1000;
+		time_db.tv_sec = POSTGRES_EPOCH_DATE + t_db / 1000000;
+		time_db.tv_nsec = ( t_db % 1000000 ) * 1000;
+
+		data_select = PQgetvalue( res, 0, 1 );
 		
-		now = get_now( );
+		t_select = be64toh( *( (uint64_t *)data_select ) );
 		
-		printf( "now from database, %llu now from database: %lu.%lu, now computed: %lu.%lu\n", t, time.tv_sec, time.tv_nsec, now.tv_sec, now.tv_nsec );
+		time_select.tv_sec = POSTGRES_EPOCH_DATE + t_select / 1000000;
+		time_select.tv_nsec = ( t_select % 1000000 ) * 1000;
+				
+		printf( "now passed as param: %lu.%lu, now from database: %lu.%lu, now computed: %lu.%lu\n",
+			time_select.tv_sec, time_select.tv_nsec, time_db.tv_sec, time_db.tv_nsec, now.tv_sec, now.tv_nsec );
 	} else {
 		/* doubles have no standard network representation! */
 		fprintf( stderr, "Not supporting dates as doubles!\n" );
@@ -130,49 +145,6 @@ int main( int argc, char *argv[] )
 		PQfinish( conn );
 		return 1;
 	}
-		
-/*		
-	iptr = PQgetvalue( res, 0, 0 );
-	id = ntohl( *( (uint32_t *)iptr ) );
-		
-			if ( r->integer_datetimes)
-		  {
-		    int64_t x;
-
-	iptr = PQgetvalue( res, 0, 0 );
-	id = ntohl( *( (uint32_t *)iptr ) );
-
-		    GET_VALUE (&vptr, x);
-
-		    x /= 1000000;
-
-		    val->f = (x + r->postgres_epoch * 24 * 3600 );
-		  }
-		else
-		  {
-		    double x;
-
-		    GET_VALUE (&vptr, x);
-
-		    val->f = (x + r->postgres_epoch * 24 * 3600 );
-		  }
-		  * 
-		  *  r->postgres_epoch =
-    calendar_gregorian_to_offset (2000, 1, 1, NULL, NULL);
-    
-	iptr = PQgetvalue( res, 0, 0 );
-	id = ntohl( *( (uint32_t *)iptr ) );
-
-	idx = PQfnumber( res, "size" );
-	iptr = PQgetvalue( res, 0, idx );
-	meta->size = ntohl( *( (uint32_t *)iptr ) );
-	
-	idx = PQfnumber( res, "mode" );
-	iptr = PQgetvalue( res, 0, idx );
-	meta->mode = ntohl( *( (uint32_t *)iptr ) );
-
-	idx = PQfnumber( res, "uid" );
-*/
 
 	PQfinish( conn );
 	
