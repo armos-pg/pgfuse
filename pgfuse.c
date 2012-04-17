@@ -57,6 +57,7 @@ typedef struct PgFuseData {
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	PGconn *conn;		/* the database handle to operate on */
 	int read_only;		/* whether the mount point is read-only */
+	int multi_threaded;	/* whether we run multi-threaded */
 } PgFuseData;
 
 /* --- helper functions --- */
@@ -87,9 +88,10 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	
-	syslog( LOG_INFO, "Mounting file system on '%s' ('%s', %s)",
+	syslog( LOG_INFO, "Mounting file system on '%s' ('%s', %s), thread #%d",
 		data->mountpoint, data->conninfo,
-		data->read_only ? "read-only" : "read-write" );
+		data->read_only ? "read-only" : "read-write",
+		fuse_get_context( )->uid );
 	
 	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
 
@@ -107,8 +109,8 @@ static void pgfuse_destroy( void *userdata )
 {
 	PgFuseData *data = (PgFuseData *)userdata;
 
-	syslog( LOG_INFO, "Unmounting file system on '%s' (%s)",
-		data->mountpoint, data->conninfo );
+	syslog( LOG_INFO, "Unmounting file system on '%s' (%s), thread #%d",
+		data->mountpoint, data->conninfo, fuse_get_context( )->uid );
 	
 	PQfinish( data->conn );
 }
@@ -120,7 +122,8 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "FgetAttrs '%s' on '%s'", path, data->mountpoint );
+		syslog( LOG_INFO, "FgetAttrs '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
@@ -131,8 +134,9 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d",
-			S_ISDIR( meta.mode ) ? "dir" : "file", path, id );
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d, thread #%d",
+			S_ISDIR( meta.mode ) ? "dir" : "file", path, id,
+			fuse_get_context( )->uid );
 	}
 	
 	stbuf->st_ino = id;
@@ -157,7 +161,8 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "GetAttrs '%s' on '%s'", path, data->mountpoint );
+		syslog( LOG_INFO, "GetAttrs '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
@@ -168,8 +173,9 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d",
-			S_ISDIR( meta.mode ) ? "dir" : "file", path, id );
+		syslog( LOG_DEBUG, "Id for %s '%s' is %d, thread #%d",
+			S_ISDIR( meta.mode ) ? "dir" : "file", path, id,
+			fuse_get_context( )->uid );
 	}
 	
 	stbuf->st_ino = id;
@@ -195,7 +201,8 @@ static int pgfuse_access( const char *path, int mode )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Access on '%s' and mode '%o", path, (unsigned int)mode );
+		syslog( LOG_INFO, "Access on '%s' and mode '%o, thread #%d",
+			path, (unsigned int)mode, fuse_get_context( )->uid );
 	}
 	
 	/* TODO: check access, but not now. grant always access */
@@ -238,7 +245,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
-		syslog( LOG_INFO, "Create '%s' in mode '%o' on '%s' with flags '%s'", path, mode, data->mountpoint, s );
+		syslog( LOG_INFO, "Create '%s' in mode '%o' on '%s' with flags '%s', thread #%d",
+			path, mode, data->mountpoint, s, fuse_get_context( )->uid );
 		if( *s != '<' ) free( s );
 	}
 	
@@ -253,7 +261,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	if( id >= 0 ) {
 		if( data->verbose ) {
-			syslog( LOG_DEBUG, "Id for dir '%s' is %d", path, id );
+			syslog( LOG_DEBUG, "Id for dir '%s' is %d, thread #%d",
+				path, id, fuse_get_context( )->uid );
 		}
 		
 		if( S_ISDIR(meta.mode ) ) {
@@ -280,7 +289,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for new file '%s' in dir '%s' is %d", path, parent_path, parent_id );
+		syslog( LOG_DEBUG, "Parent_id for new file '%s' in dir '%s' is %d, thread #%d",
+			path, parent_path, parent_id, fuse_get_context( )->uid );
 	}
 	
 	free( copy_path );
@@ -320,7 +330,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for new file '%s' is %d", path, id );
+		syslog( LOG_DEBUG, "Id for new file '%s' is %d, thread #%d",
+			path, id, fuse_get_context( )->uid );
 	}
 		
 	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].id != 0 ) {
@@ -358,7 +369,8 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
-		syslog( LOG_INFO, "Open '%s' on '%s' with flags '%s'", path, data->mountpoint, s );
+		syslog( LOG_INFO, "Open '%s' on '%s' with flags '%s', thread #%d",
+			path, data->mountpoint, s, fuse_get_context( )->uid );
 		if( *s != '<' ) free( s );
 	}
 
@@ -368,7 +380,8 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for file '%s' to open is %d", path, id );
+		syslog( LOG_DEBUG, "Id for file '%s' to open is %d, thread #%d",
+			path, id, fuse_get_context( )->uid );
 	}
 		
 	if( S_ISDIR( meta.mode ) ) {
@@ -430,7 +443,8 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Readdir '%s' on '%s'", path, data->mountpoint  );
+		syslog( LOG_INFO, "Readdir '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	filler( buf, ".", NULL, 0 );
@@ -469,8 +483,9 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s'",
-			path, (unsigned int)mode, data->mountpoint  );
+		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s', thread #%d",
+			path, (unsigned int)mode, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -494,7 +509,8 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %d", path, parent_id );
+		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %d, thread #%d",
+			path, parent_id, fuse_get_context( )->uid );
 	}
 	
 	free( copy_path );
@@ -531,7 +547,8 @@ static int pgfuse_rmdir( const char *path )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Rmdir '%s' on '%s'", path, data->mountpoint  );
+		syslog( LOG_INFO, "Rmdir '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 
 	id = psql_get_meta( data->conn, path, &meta );
@@ -543,7 +560,8 @@ static int pgfuse_rmdir( const char *path )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %d", path, id );
+		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %d, thread #%d",
+			path, id, fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -563,7 +581,8 @@ static int pgfuse_unlink( const char *path )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Remove file '%s' on '%s'", path, data->mountpoint  );
+		syslog( LOG_INFO, "Remove file '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	id = psql_get_meta( data->conn, path, &meta );
@@ -575,7 +594,8 @@ static int pgfuse_unlink( const char *path )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %d", path, id );
+		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %d, thread #%d",
+			path, id, fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -602,8 +622,9 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "%s on file '%s' on '%s'",
-			isdatasync ? "FDataSync" : "FSync", path, data->mountpoint  );
+		syslog( LOG_INFO, "%s on file '%s' on '%s', thread #%d",
+			isdatasync ? "FDataSync" : "FSync", path, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -645,8 +666,8 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Releasing '%s' on '%s'",
-			path, data->mountpoint  );
+		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 
 	if( fi->fh == 0 ) {
@@ -697,8 +718,9 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	PgFuseFile *f;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s'",
-			path, (unsigned int)offset, (unsigned int)size, data->mountpoint  );
+		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%d",
+			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 
 	if( fi->fh == 0 ) {
@@ -742,8 +764,9 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	PgFuseFile *f;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s'",
-			path, (unsigned int)offset, (unsigned int)size, data->mountpoint  );
+		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s', thread #%d",
+			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 
 	if( fi->fh == 0 ) {
@@ -769,8 +792,8 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	PgFuseFile *f;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s'",
-			path, (unsigned int)offset, data->mountpoint  );
+		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
+			path, (unsigned int)offset, data->mountpoint, fuse_get_context( )->uid );
 	}
 
 	id = psql_get_meta( data->conn, path, &meta );
@@ -783,7 +806,8 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of file '%s' to be truncated is %d", path, id );
+		syslog( LOG_DEBUG, "Id of file '%s' to be truncated is %d, thread #%d",
+			path, id, fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -807,8 +831,9 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	PgFuseFile *f;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s'",
-			path, (unsigned int)offset, data->mountpoint  );
+		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
+			path, (unsigned int)offset, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 
 	if( fi->fh == 0 ) {
@@ -831,8 +856,8 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Statfs called on '%s'",
-			data->mountpoint  );
+		syslog( LOG_INFO, "Statfs called on '%s', thread #%d",
+			data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	/* Note: f_frsize, f_favail, f_fsid and f_flag are currently ignored by FUSE */
@@ -866,8 +891,9 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 	int res;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Chmod on '%s' to mode '%o' on '%s'",
-			path, (unsigned int)mode, data->mountpoint  );
+		syslog( LOG_INFO, "Chmod on '%s' to mode '%o' on '%s', thread #%d",
+			path, (unsigned int)mode, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 	
 	id = psql_get_meta( data->conn, path, &meta );
@@ -890,8 +916,9 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	int res;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Chown on '%s' to uid '%d' and gid '%d' on '%s'",
-			path, (unsigned int)uid, (unsigned int)gid, data->mountpoint  );
+		syslog( LOG_INFO, "Chown on '%s' to uid '%d' and gid '%d' on '%s', thread #%d",
+			path, (unsigned int)uid, (unsigned int)gid, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 	
 	id = psql_get_meta( data->conn, path, &meta );
@@ -919,8 +946,8 @@ static int pgfuse_symlink( const char *from, const char *to )
 	PgMeta meta;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Symlink from '%s' to '%s' on '%s'",
-			from, to, data->mountpoint  );
+		syslog( LOG_INFO, "Symlink from '%s' to '%s' on '%s', thread #%d",
+			from, to, data->mountpoint, fuse_get_context( )->uid );
 	}
 
 	if( data->read_only ) {
@@ -944,7 +971,8 @@ static int pgfuse_symlink( const char *from, const char *to )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for symlink '%s' is %d", to, parent_id );
+		syslog( LOG_DEBUG, "Parent_id for symlink '%s' is %d, thread #%d",
+			to, parent_id, fuse_get_context( )->uid );
 	}
 	
 	free( copy_to );
@@ -1001,8 +1029,8 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 	int res;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Dereferencing symlink '%s' on '%s'",
-			path, data->mountpoint  );
+		syslog( LOG_INFO, "Dereferencing symlink '%s' on '%s', thread #%d",
+			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
 	id = psql_get_meta( data->conn, path, &meta );
@@ -1035,8 +1063,9 @@ static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 	int res;
 	
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Utimens on '%s' to access time '%d' and modification time '%d' on '%s'",
-			path, (unsigned int)tv[0].tv_sec, (unsigned int)tv[1].tv_sec, data->mountpoint  );
+		syslog( LOG_INFO, "Utimens on '%s' to access time '%d' and modification time '%d' on '%s', thread #%d",
+			path, (unsigned int)tv[0].tv_sec, (unsigned int)tv[1].tv_sec, data->mountpoint,
+			fuse_get_context( )->uid );
 	}
 	
 	id = psql_get_meta( data->conn, path, &meta );
@@ -1096,7 +1125,7 @@ static struct fuse_operations pgfuse_oper = {
 
 /* --- parse arguments --- */
 
-typedef struct PgFuse {
+typedef struct PgFuseOptions {
 	int print_help;		/* whether we should print a help page */
 	int print_version;	/* whether we should print the version */
 	int verbose;		/* whether we should be verbose */
@@ -1104,9 +1133,9 @@ typedef struct PgFuse {
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	int read_only;		/* whether to mount read-only */
 	int multi_threaded;	/* whether we run multi-threaded */
-} PgFuse;
+} PgFuseOptions;
 
-#define PGFUSE_OPT( t, p, v ) { t, offsetof( PgFuse, p ), v }
+#define PGFUSE_OPT( t, p, v ) { t, offsetof( PgFuseOptions, p ), v }
 
 enum {
 	KEY_HELP,
@@ -1128,7 +1157,7 @@ static struct fuse_opt pgfuse_opts[] = {
 static int pgfuse_opt_proc( void* data, const char* arg, int key,
                             struct fuse_args* outargs )
 {
-	PgFuse *pgfuse = (PgFuse *)data;
+	PgFuseOptions *pgfuse = (PgFuseOptions *)data;
 
 	switch( key ) {
 		case FUSE_OPT_KEY_OPT:
@@ -1203,7 +1232,7 @@ int main( int argc, char *argv[] )
 	int res;
 	PGconn *conn;
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
-	PgFuse pgfuse;
+	PgFuseOptions pgfuse;
 	PgFuseData userdata;
 	const char *value;
 	
@@ -1218,7 +1247,7 @@ int main( int argc, char *argv[] )
 			/* print options of FUSE itself */
 			argv[1] = "-ho";
 			argv[2] = "mountpoint";
-			dup2( STDOUT_FILENO, STDERR_FILENO ); /* force fuse help to stdout */
+			(void)dup2( STDOUT_FILENO, STDERR_FILENO ); /* force fuse help to stdout */
 			fuse_main( 2, argv, &pgfuse_oper, NULL);
 			exit( EXIT_SUCCESS );
 		}
@@ -1264,6 +1293,9 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 	
+	/* Make sure we have the more modern uint64 representation for timestamps,
+	 * bail out otherwise
+	 */
 	if( strcmp( value, "on" ) != 0 ) {
 		fprintf( stderr, "Expecting UINT64 for timestamps, not doubles. You may use an old version of PostgreSQL (<8.4)\n"
 		         "or PostgreSQL has been compiled with the deprecated compile option '--disable-integer-datetimes'\n" );
@@ -1280,6 +1312,7 @@ int main( int argc, char *argv[] )
 	userdata.mountpoint = pgfuse.mountpoint;
 	userdata.verbose = pgfuse.verbose;
 	userdata.read_only = pgfuse.read_only;
+	userdata.multi_threaded = pgfuse.multi_threaded;
 	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
 	

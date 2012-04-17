@@ -30,6 +30,10 @@ mysqlfs:
   The blueprint I used and got inspired from. Does exactly the same for
   the MySQL database.      
 
+libsqlfs:
+
+  The same for for storing files in a Sqlite database.
+  
 curlftpfs:
 
   Blueprint for some debugging code.

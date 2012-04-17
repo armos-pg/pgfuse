@@ -19,21 +19,26 @@
 #define CONFIG_H
 
 /* version of PgFuse */
-#define PGFUSE_VERSION "0.0.1"
+
+#define PGFUSE_VERSION		"0.0.1"
 
 /* standard block size, rather a simulation currently */
-#define STANDARD_BLOCK_SIZE 512
+
+#define STANDARD_BLOCK_SIZE	512
 
 /* maximal number of open files, may vary as there may be hashtable
  * collitions. Must be a prime */
-#define MAX_NOF_OPEN_FILES 257
+
+#define MAX_NOF_OPEN_FILES	257
 
 /* maximum size of a file, rather arbitrary, 2^31 is a current implementation
  * limit, before fixing this, the storing and efficiency has to be rethought
  * anyway.. */
-#define MAX_FILE_SIZE 10485760
+
+#define MAX_FILE_SIZE		10485760
 
 /* maximum length of a filename , rather arbitrary choice */
-#define MAX_FILENAME_LENGTH 4096
+
+#define MAX_FILENAME_LENGTH	4096
 
 #endif
