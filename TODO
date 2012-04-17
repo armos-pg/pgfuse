@@ -7,8 +7,6 @@ TODO list (in order of priority)
   - ownership: how is this done depending on
     per-user or root mounts? think about security
     here!
-  - mode: simple
-  - times: simple
   - extended attributes
 - pooling of PQconn
 - thread-synchronization (we can ommit the -s flag)
