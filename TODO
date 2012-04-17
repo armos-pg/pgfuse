@@ -40,3 +40,6 @@ TODO list (in order of priority)
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
   - investigate SELinux races
   - make some performance tests, see http://archive09.linux.com/feature/127055
+- opimize using .flag_nullpath_ok = 1, check functions if they can live without
+  path (but for verbosity and error messages), maybe add path to PgFuseFile
+  
