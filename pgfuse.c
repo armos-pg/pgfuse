@@ -1103,6 +1103,7 @@ typedef struct PgFuse {
 	char *conninfo;		/* connection info as used in PQconnectdb */
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	int read_only;		/* whether to mount read-only */
+	int multi_threaded;	/* whether we run multi-threaded */
 } PgFuse;
 
 #define PGFUSE_OPT( t, p, v ) { t, offsetof( PgFuse, p ), v }
@@ -1131,6 +1132,9 @@ static int pgfuse_opt_proc( void* data, const char* arg, int key,
 
 	switch( key ) {
 		case FUSE_OPT_KEY_OPT:
+			if( strcmp( arg, "-s" ) == 0 ) {
+				pgfuse->multi_threaded = 0;
+			}
 			return 1;
 		
 		case FUSE_OPT_KEY_NONOPT:
@@ -1204,6 +1208,7 @@ int main( int argc, char *argv[] )
 	const char *value;
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
+	pgfuse.multi_threaded = 1;
 	
 	if( fuse_opt_parse( &args, &pgfuse, pgfuse_opts, pgfuse_opt_proc ) == -1 ) {
 		if( pgfuse.print_help ) {
@@ -1224,7 +1229,13 @@ int main( int argc, char *argv[] )
 		
 	if( pgfuse.conninfo == NULL ) {
 		fprintf( stderr, "Missing Postgresql connection data\n" );
-		fprintf( stderr, "see '%s -h' for usage\n", basename( argv[0] ) );
+		fprintf( stderr, "See '%s -h' for usage\n", basename( argv[0] ) );
+		exit( EXIT_FAILURE );
+	}
+	
+	if( pgfuse.multi_threaded ) {
+		fprintf( stderr, "Currently not supporting multi-threaded mode, specify '-s'!\n" );
+		fprintf( stderr, "See '%s -h' for usage\n", basename( argv[0] ) );
 		exit( EXIT_FAILURE );
 	}
 	

@@ -22,22 +22,22 @@ Other projects
 
 Pgfs:
 
-Stores a filesystem in Postgres, exposes it as a NFS server, rather old
-and I was unable to find the sources.
+  Stores a filesystem in Postgres, exposes it as a NFS server, rather old
+  and I was unable to find the sources.
 
 mysqlfs:
 
-The blueprint I used and got inspired from. Does exactly the same for
-the MySQL database.      
+  The blueprint I used and got inspired from. Does exactly the same for
+  the MySQL database.      
 
 curlftpfs:
 
-Blueprint for some debugging code.
+  Blueprint for some debugging code.
 
-zip-fs
+zip-fs:
 
-Blueprint for handling files in memory (in my current implementation,
-this should be changed of course)
+  Blueprint for handling files in memory (in my current implementation,
+  this should be changed of course)
 
 References
 ----------

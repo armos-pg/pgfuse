@@ -42,4 +42,7 @@ TODO list (in order of priority)
   - make some performance tests, see http://archive09.linux.com/feature/127055
 - opimize using .flag_nullpath_ok = 1, check functions if they can live without
   path (but for verbosity and error messages), maybe add path to PgFuseFile
+- make table names options, in order to store many pgfuse filesystems in one
+  database
+  
   

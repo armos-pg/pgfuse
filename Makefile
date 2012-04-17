@@ -6,7 +6,7 @@ CFLAGS = -Wall -Werror -g -O0 -pthread
 #CFLAGS = -Wall -O2
 
 # declare version of FUSE API we want to program against
-CFLAGS += -DFUSE_USE_VERSION=29
+CFLAGS += -DFUSE_USE_VERSION=26
 
 CFLAGS += -D_FILE_OFFSET_BITS=64
 
