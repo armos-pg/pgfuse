@@ -19,16 +19,19 @@ CFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += `pkg-config fuse --cflags`
 LDFLAGS = `pkg-config fuse --libs` -lpq
 
+PG_CONNINFO = ""
+
 clean:
 	rm -f pgfuse pgfuse.o pgsql.o
 	rm -f testfsync testfsync.o
+	rm -f testpgsql testpgsql.o
 	psql < clean.sql
 
-test: pgfuse testfsync
+test: pgfuse testfsync testpgsql
 	psql < clean.sql
 	psql < schema.sql
 	test -d mnt || mkdir mnt
-	./pgfuse -s -v "" mnt
+	./pgfuse -s -v "$(PG_CONNINFO)" mnt
 	mount | grep pgfuse
 	# expect success for making directories
 	-mkdir mnt/dir
@@ -81,4 +84,9 @@ testfsync: testfsync.o
 testfsync.o: testfsync.c
 	$(CC) -c $(CFLAGS) -o testfsync.o testfsync.c
 	
-	
+testpgsql: testpgsql.o
+	$(CC) -o testpgsql testpgsql.o $(LDFLAGS)
+
+testpgsql.o: testpgsql.c
+	$(CC) -c $(CFLAGS) -o testpgsql.o testpgsql.c
+
