@@ -31,7 +31,7 @@ typedef struct PgMeta {
 	mode_t mode;		/* type and permissions of file/directory */
 	uid_t uid;		/* owner of the file/directory */
 	gid_t gid;		/* group owner of the file/directory */
-	struct timespec ctime;	/* creation time */
+	struct timespec ctime;	/* last status change time */
 	struct timespec mtime;	/* last modification time */
 	struct timespec atime;	/* last access time */
 } PgMeta;

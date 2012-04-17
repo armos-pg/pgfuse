@@ -1013,10 +1013,16 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 		return -ENOENT;
 	}
 	
-	res = psql_read_buf( data->conn, id, path, &buf, size );
+	if( size < meta.size + 1 ) {
+		return -ENOMEM;
+	}
+	
+	res = psql_read_buf( data->conn, id, path, &buf, meta.size );
 	if( res < 0 ) {
 		return res;
 	}
+	
+	buf[meta.size] = '\0';
 	
 	return 0;
 }

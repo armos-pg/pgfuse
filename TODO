@@ -1,14 +1,14 @@
 TODO list (in order of priority)
 ---------
 
-- more charsets for file, symlink and directory names
-- complete set of operations
 - handling of most file system metadata
   - ownership: how is this done depending on
     per-user or root mounts? think about security
     here!
   - extended attributes
 - pooling of PQconn
+- replace dir.path with a range search tree algo in DB
+- rename (after a redo of the dir table)
 - thread-synchronization (we can ommit the -s flag)
 - use of asynchonous read/writes
 - what is a transaction? couple to fsync/fdatasync
