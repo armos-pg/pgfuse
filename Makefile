@@ -64,6 +64,10 @@ test: pgfuse testfsync testpgsql
 	-rmdir mnt/dir/dir2/bfile
 	# test fdatasync and fsync
 	./testfsync
+	# show times of dirs, files and symlinks
+	-stat mnt/dir/dir2/afile
+	-stat mnt/dir/dir3
+	-stat mnt/dir/dir2/clink
 	# show filesystem stats (statvfs)
 	df -k mnt
 	df -i mnt

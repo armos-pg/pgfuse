@@ -47,5 +47,5 @@ CREATE OR REPLACE RULE "dir_remove" AS ON
 -- self-referencing anchor for root directory
 -- 16895 = S_IFDIR and 0777 permissions
 -- TODO: should be done from outside, see note above
-INSERT INTO dir( id, parent_id, name, path, size, mode, uid, gid )
-	VALUES( 0, 0, '/', '/', 0, 16895, 0, 0 );
+INSERT INTO dir( id, parent_id, name, path, size, mode, uid, gid, ctime, mtime, atime )
+	VALUES( 0, 0, '/', '/', 0, 16895, 0, 0, NOW( ), NOW( ), NOW( ) );

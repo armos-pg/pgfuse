@@ -59,6 +59,8 @@ typedef struct PgFuseData {
 	int read_only;		/* whether the mount point is read-only */
 } PgFuseData;
 
+/* --- helper functions --- */
+
 static struct timespec now( void )
 {
 	int res;
@@ -78,6 +80,8 @@ static struct timespec now( void )
 	
 	return s;
 }
+
+/* --- implementation of FUSE hooks --- */
 
 static void *pgfuse_init( struct fuse_conn_info *conn )
 {
@@ -179,6 +183,9 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	/* set rights to the user running 'pgfuse' */
 	stbuf->st_uid = meta.uid;
 	stbuf->st_gid = meta.gid;
+	stbuf->st_atime = meta.atime.tv_sec;
+	stbuf->st_mtime = meta.mtime.tv_sec;
+	stbuf->st_ctime = meta.ctime.tv_sec;
 	
 	return 0;
 }
@@ -292,8 +299,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	meta.uid = geteuid( );
 	meta.gid = getegid( );
 	meta.ctime = now( );
-	meta.atime = now( );
-	meta.mtime = now( );
+	meta.mtime = meta.ctime;
+	meta.atime = meta.ctime;
 	
 	res = psql_create_file( data->conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
@@ -506,8 +513,8 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	meta.uid = geteuid( );
 	meta.gid = getegid( );
 	meta.ctime = now( );
-	meta.atime = now( );
-	meta.mtime = now( );
+	meta.mtime = meta.ctime;
+	meta.atime = meta.ctime;
 	
 	res = psql_create_dir( data->conn, parent_id, path, new_dir, meta );
 
@@ -955,6 +962,9 @@ static int pgfuse_symlink( const char *from, const char *to )
 	/* TODO: use FUSE context */
 	meta.uid = geteuid( );
 	meta.gid = getegid( );
+	meta.ctime = now( );
+	meta.mtime = meta.ctime;
+	meta.atime = meta.ctime;
 	
 	res = psql_create_file( data->conn, parent_id, to, symlink, meta );
 	if( res < 0 ) {
@@ -1185,6 +1195,7 @@ int main( int argc, char *argv[] )
 	struct fuse_args args = FUSE_ARGS_INIT( argc, argv );
 	PgFuse pgfuse;
 	PgFuseData userdata;
+	const char *value;
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
 	
@@ -1221,6 +1232,26 @@ int main( int argc, char *argv[] )
 		PQfinish( conn );
 		exit( EXIT_FAILURE );
 	}
+
+	/* test storage of timestamps (expecting uint64 as it is the
+	 * standard for PostgreSQL 8.4 or newer). Otherwise bail out
+	 * currently..
+	 */
+	value = PQparameterStatus( conn, "integer_datetimes" );
+	if( value == NULL ) {
+		fprintf( stderr, "PQ param integer_datetimes not available?\n"
+		         "You use a too old version of PostgreSQL..can't continue.\n" );
+		PQfinish( conn );
+		return 1;
+	}
+	
+	if( strcmp( value, "on" ) != 0 ) {
+		fprintf( stderr, "Expecting UINT64 for timestamps, not doubles. You may use an old version of PostgreSQL (<8.4)\n"
+		         "or PostgreSQL has been compiled with the deprecated compile option '--disable-integer-datetimes'\n" );
+		PQfinish( conn );
+		return 1;
+	}
+		
 	PQfinish( conn );
 	
 	openlog( basename( argv[0] ), LOG_PID, LOG_USER );	

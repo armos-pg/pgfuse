@@ -22,7 +22,7 @@
 #include <stdbool.h>		/* for bool */
 #include <stdint.h>		/* for uint64_t */
 #include <endian.h>		/* for be64toh (GNU/BSD-ism, but easy to port if necessary) */
-#include <sys/time.h>		/* for struct timespec */
+#include <sys/time.h>		/* for struct timespec, gettimeofday */
 
 /* January 1, 2000, 00:00:00 UTC (in Unix epoch seconds) */
 #define POSTGRES_EPOCH_DATE 946684800
@@ -135,6 +135,8 @@ int main( int argc, char *argv[] )
 		
 		time_select.tv_sec = POSTGRES_EPOCH_DATE + t_select / 1000000;
 		time_select.tv_nsec = ( t_select % 1000000 ) * 1000;
+
+		now = get_now( );
 				
 		printf( "now passed as param: %lu.%lu, now from database: %lu.%lu, now computed: %lu.%lu\n",
 			time_select.tv_sec, time_select.tv_nsec, time_db.tv_sec, time_db.tv_nsec, now.tv_sec, now.tv_nsec );
