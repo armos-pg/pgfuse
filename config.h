@@ -18,6 +18,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+/* version of PgFuse */
+#define PGFUSE_VERSION "0.0.1"
+
 /* standard block size, rather a simulation currently */
 #define STANDARD_BLOCK_SIZE 512
 

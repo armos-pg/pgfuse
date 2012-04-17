@@ -69,8 +69,7 @@ test: pgfuse testfsync testpgsql
 	-stat mnt/dir/dir3
 	-stat mnt/dir/dir2/clink
 	# show filesystem stats (statvfs)
-	df -k mnt
-	df -i mnt
+	-stat -f mnt
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o

@@ -1214,14 +1214,16 @@ int main( int argc, char *argv[] )
 		if( pgfuse.print_help ) {
 			/* print our options */
 			print_usage( basename( argv[0] ) );
+			fflush( stdout );
 			/* print options of FUSE itself */
 			argv[1] = "-ho";
 			argv[2] = "mountpoint";
+			dup2( STDOUT_FILENO, STDERR_FILENO ); /* force fuse help to stdout */
 			fuse_main( 2, argv, &pgfuse_oper, NULL);
 			exit( EXIT_SUCCESS );
 		}
 		if( pgfuse.print_version ) {
-			fprintf( stderr, "0.0.1\n" );
+			printf( "%s\n", PGFUSE_VERSION );
 			exit( EXIT_SUCCESS );
 		}
 		exit( EXIT_FAILURE );
