@@ -1,8 +1,8 @@
 TODO list (in order of priority)
 ---------
 
-- remove the size limitations, change the storage to
-  a bytea (in blocks) as in mysqlfs.
+- add tests for sparse files and funny read/write operations
+- sort out transaction
 - remove buffer in PgFuseFile, it causes synchronization
   trouble, transaction trouble and is most likely not
   necessary
