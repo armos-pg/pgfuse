@@ -1,0 +1,82 @@
+Internal documentation for developers
+-------------------------------------
+
+   Coding guidelines
+   Design decisions
+      Storage of binarydata
+      Directory tree in database
+
+Coding guidelines
+-----------------
+
+  8-character TABs.
+    
+  Standard C89, portable to all platforms supporting FUSE (Linux,
+  FreeBSD, OpenBSD, NetBSD, Darwin/MacOSX). No C++, no C99.
+    
+  Do not introduce unnecessary 3rd party dependencies in addition
+  to the required 'libfuse' and 'libpq'.
+    
+  Use native 'libpq', not abstractions. The database operations
+  are simple enough. If possible avoid string manipulations as
+  for timestamps (we are on low-level OS-abstraction layer, so
+  'struct timespec' and epochs are fine).
+          
+Design desicions
+----------------
+
+Storage of binary data
+----------------------
+
+Options:
+
+One ByteA field
+
+  All data in a big bytea column: needs memory of the size of the
+  complete file on client (pgfuse) and server (PostgreSQL) side,
+  is ok for small files (first proof-of-concept implementation)
+
+Multiple ByteA of equal size
+
+  As in Mysqlfs simulate blocks as bytea fields of fixes size with
+  a block number. The blocksize has to be carefully tuned with file-
+  system, PostgreSQL and fuse parameters.
+  
+  Should give good average performance, the "One ByteA field" variant
+  for small files is still as efficient as before.
+
+Blobs
+
+  They are streamable, but we lack some security (verify?) and we
+  lack referential integrity.
+  
+  The functions to manipulate the blobs are not so nice.
+  
+  It's also questionable whether they could be faster than a bytea.
+
+Some unsorted thoughts:
+
+Streams are mere abstractions and not really needed from the database
+interface.
+
+COPY FROM and COPY to as a fast, non-transactional mode?
+
+Directory tree in database
+--------------------------
+
+Naive implementation
+  
+  Complete path as string. Has high mutation costs for renames,
+  storage overhead. But is very fast for queries (no joins).
+  
+TODO...
+
+Self-containment
+----------------
+
+React decently to loose of database connections. Try to reestablish
+the connection, the loss of database connection could be temporary.
+
+What should be reported back as temporary error state to FUSE?
+EIO seems a good option (as if the disk would have temporary I/O
+problems).
