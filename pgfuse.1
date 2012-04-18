@@ -60,7 +60,10 @@ Options are the normal FUSE options plus the special PgFuse options:
 .TP
 \fB-o\fR ro (default="")
 The default is to mount the filesystem read-writable. This can be
-overrules to allow only read-operations.
+overruled to allow only read operations.
+.SS "FUSE/Mount options"
+For a list of possible mount and FUSE options consult the manpage
+of \fBmount\fR and the README file of the \fBfuse\fR source package.
 .SH DESCRIPTION
 PgFuse is a FUSE filesystem which stores inodes and data into a
 PostgreSQL database.
@@ -75,5 +78,8 @@ PostgreSQL database.
 - no rename supported
 .TP
 - no support for extended attributes and ACLs
+.TP
+- only auto-commit transactions currently, so parallel access from
+other clients of the same database may see incomplete data
 .SH AUTHOR
 PgFuse has been written by Andreas Baumann <abaumann@yahoo.com>
