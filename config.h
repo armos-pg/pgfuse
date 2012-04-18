@@ -22,7 +22,7 @@
 
 #define PGFUSE_VERSION		"0.0.1"
 
-/* standard block size, rather a simulation currently */
+/* standard block size, that's the split size for the byta column in data */
 
 #define STANDARD_BLOCK_SIZE	512
 

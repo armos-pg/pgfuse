@@ -41,9 +41,7 @@
 
 typedef struct PgFuseFile {
 	int id;			/* id as in database, also passed in FUSE context */
-	char *buf;		/* buffer containing data */
-	size_t size;		/* current size of the buffer (malloc/realloc) */
-	size_t used;		/* used size in the buffer */
+	size_t size;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
 } PgFuseFile;
 
@@ -341,14 +339,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
 	f->id = id;
-	f->size = STANDARD_BLOCK_SIZE;
-	f->used = 0;
-	f->buf = (char *)malloc( f->size );
-	if( f->buf == NULL ) {
-		f->id = 0;
-		free( copy_path );
-		return -ENOMEM;
-	}
+	f->size = 0;
 	f->ref_count = 1;
 
 	fi->fh = id;
@@ -365,7 +356,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	PgMeta meta;
 	int id;
 	PgFuseFile *f;
-	int res;
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -405,24 +395,9 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 	
 	f->id = id;
-	f->size = ( ( meta.size / STANDARD_BLOCK_SIZE ) + 1 ) * STANDARD_BLOCK_SIZE;
-	f->used = meta.size;
-	f->buf = (char *)malloc( f->size );
-	if( f->buf == NULL ) {
-		f->id = 0;
-		return -ENOMEM;
-	}
+	f->size = meta.size;
 	f->ref_count = 1;
 	
-	res = psql_read_buf( data->conn, id, path, &f->buf, f->used );
-	if( res != f->used ) {
-		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
-			path, (unsigned int)f->used, res, data->mountpoint );
-		free( f->buf );
-		f->id = 0;
-		return -EIO;
-	}
-
 	fi->fh = id;
 	
 	return 0;
@@ -637,20 +612,15 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
-	
 	if( !isdatasync ) {
 		res = psql_get_meta( data->conn, path, &meta );
 		if( res < 0 ) {
 			return res;
 		}
-		meta.size = f->used;
+		meta.size = f->size;
 		res = psql_write_meta( data->conn, f->id, path, meta );
 	}
-	
-	if( res >= 0 ) {
-		res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
-	}
-	
+		
 	if( res < 0 ) {
 		return res;
 	}
@@ -684,9 +654,6 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	if( data->read_only ) {
 		f->id = 0;
 		f->size = 0;
-		free( f->buf );
-		f->used = 0;
-		
 		return 0;
 	}
 	
@@ -697,16 +664,11 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		memset( &meta, 0, sizeof( meta ) );
 	}
 	
-	meta.size = f->used;
+	meta.size = f->size;
 	res = psql_write_meta( data->conn, f->id, path, meta );
-	if( res >= 0 ) {
-		res = psql_write_buf( data->conn, f->id, path, f->buf, f->used );
-	}
 	
 	f->id = 0;
 	f->size = 0;
-	free( f->buf );
-	f->used = 0;
 
 	return res;
 }
@@ -716,6 +678,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
+	int res;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%d",
@@ -734,24 +697,14 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
 	if( offset + size > f->size ) {
-		f->size = ( ( ( offset + size ) / STANDARD_BLOCK_SIZE ) + 1 ) * STANDARD_BLOCK_SIZE;
-		if( f->size > MAX_FILE_SIZE ) {
-			f->id = 0;
-			free( f->buf );
-			fi->fh = 0;
-			return -EFBIG;
-		}			
-		f->buf = (char *)realloc( f->buf, f->size );
-		if( f->buf == NULL ) {
-			f->id = 0;
-			fi->fh = 0;
-			return -ENOMEM;
-		}
+		f->size = offset + size;
 	}
 	
-	memcpy( f->buf+offset, buf, size );
-	if( offset + size > f->used ) {
-		f->used = offset + size;
+	res = psql_write_buf( data->conn, f->id, path, buf, offset, size, data->verbose );
+	if( res != size ) {
+		syslog( LOG_ERR, "Write size mismatch in file '%s' on mountpoint '%s', expected '%d' to be written, but actually wrote '%d' bytes! Data inconistency!",
+			path, data->mountpoint, size, res );
+		return -EIO;
 	}
 	
 	return size;
@@ -762,6 +715,7 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
+	int res;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s', thread #%d",
@@ -774,13 +728,15 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	}
 
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-	
-	if( offset + size > f->used ) {
-		size = f->used - offset;
+
+	res = psql_read_buf( data->conn, f->id, path, buf, offset, size, data->verbose );
+	if( res != size ) {
+		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
+			path, size, res, data->mountpoint );
+		f->id = 0;
+		return -EIO;
 	}
-	
-	memcpy( buf, f->buf+offset, size );
-	
+		
 	return size;
 }
 
@@ -790,6 +746,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	int id;
 	PgMeta meta;
 	PgFuseFile *f;
+	int res;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
@@ -820,15 +777,18 @@ static int pgfuse_truncate( const char* path, off_t offset )
 		return -EBADF;
 	}
 
-	f->used = offset;
+	res = psql_truncate( data->conn, f->id, path, offset );
 	
-	return 0;
+	f->size = offset;
+	
+	return res;
 }
 
 static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
+	int res;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
@@ -845,10 +805,12 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	}
 	
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
+
+	res = psql_truncate( data->conn, f->id, path, offset );
 	
-	f->used = offset;
+	f->size = offset;
 	
-	return 0;
+	return res;
 }
 
 static int pgfuse_statfs( const char *path, struct statvfs *buf )
@@ -1006,7 +968,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 		return id;
 	}
 
-	res = psql_write_buf( data->conn, id, to, from, strlen( from ) );
+	res = psql_write_buf( data->conn, id, to, from, 0, strlen( from ), data->verbose );
 	if( res < 0 ) {
 		free( copy_to );
 		return res;
@@ -1045,7 +1007,7 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 		return -ENOMEM;
 	}
 	
-	res = psql_read_buf( data->conn, id, path, &buf, meta.size );
+	res = psql_read_buf( data->conn, id, path, buf, 0, meta.size, data->verbose );
 	if( res < 0 ) {
 		return res;
 	}

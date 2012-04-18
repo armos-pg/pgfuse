@@ -15,14 +15,18 @@ CREATE TABLE dir (
 	atime TIMESTAMP
 );
 
+-- TODO: 512 is STANDARD_BLOCK_SIZE in config.h, must be in sync!
 CREATE TABLE data (
-	id INTEGER,
-	FOREIGN KEY( id ) REFERENCES dir( id ),
-	data BYTEA
+	id SERIAL PRIMARY KEY,
+	dir_id INTEGER,
+	block_no INTEGER NOT NULL DEFAULT 0,
+	FOREIGN KEY( dir_id ) REFERENCES dir( id ),
+	data BYTEA NOT NULL DEFAULT repeat(E'\\000',512)::bytea
 );
 
--- create an index for fast data access
-CREATE INDEX data_id_idx ON data( id );
+-- create indexes for fast data access
+CREATE INDEX data_dir_id_idx ON data( dir_id );
+CREATE INDEX data_block_no_idx ON data( block_no );
 
 -- create an index on the parent_id for
 -- directory listings
@@ -32,17 +36,17 @@ CREATE INDEX dir_parent_id_idx ON dir( parent_id );
 -- TODO: should be created by the program after checking the OS
 -- it is running on (for full POSIX compatibility)
 
--- make sure file entries always get a data
--- section in the separate table
+-- make sure 'dir' entries always get a first block in the 'data'
+-- table
 CREATE OR REPLACE RULE "dir_insert" AS ON
 	INSERT TO dir WHERE NEW.mode & 16384 = 0
-	DO ALSO INSERT INTO data( id )
+	DO ALSO INSERT INTO data( dir_id )
 	VALUES ( currval( 'dir_id_seq' ) );
 
--- garbage collect deleted file entries
+-- garbage collect deleted file entries, delete all blocks in 'data'
 CREATE OR REPLACE RULE "dir_remove" AS ON
 	DELETE TO dir WHERE OLD.mode & 16384 = 0
-	DO ALSO DELETE FROM data WHERE id=OLD.id;	
+	DO ALSO DELETE FROM data WHERE dir_id=OLD.id;	
 	
 -- self-referencing anchor for root directory
 -- 16895 = S_IFDIR and 0777 permissions

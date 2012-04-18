@@ -42,7 +42,7 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 
 int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, PgMeta meta );
 
-int psql_read_buf( PGconn *conn, const int id, const char *path, char **buf, const size_t len );
+int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, const off_t offset, const size_t len, int verbose );
 
 int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler );
 
@@ -52,6 +52,8 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path );
 
 int psql_delete_file( PGconn *conn, const int id, const char *path );
 
-int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const size_t len );
+int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const off_t offset, const size_t len, int verbose );
+
+int psql_truncate( PGconn *conn, const int id, const char *path, const off_t offset );
 
 #endif

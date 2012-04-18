@@ -5,6 +5,7 @@ Internal documentation for developers
    Design decisions
       Storage of binarydata
       Directory tree in database
+   Testing
 
 Coding guidelines
 -----------------
@@ -61,6 +62,9 @@ interface.
 
 COPY FROM and COPY to as a fast, non-transactional mode?
 
+Pad blocks in data or not? Or all but the last one, allowing very
+small files to be stored efficiently.
+
 Directory tree in database
 --------------------------
 
@@ -80,3 +84,13 @@ the connection, the loss of database connection could be temporary.
 What should be reported back as temporary error state to FUSE?
 EIO seems a good option (as if the disk would have temporary I/O
 problems).
+
+Testing
+-------
+
+The makefile contains some basic functionallity tests (mostly using
+commands of the shell).
+
+bonnie is a good stress and performance tester. Don't despair because
+of poor performance, that's normal. :-)
+

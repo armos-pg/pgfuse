@@ -1,5 +1,5 @@
 - no hard-links
-- not able to store files bigger than MAX_FILE_SIZE (10MB)
+- no mknod support
 - doesn't run multi-threaded currently (always give the -s option!)
 - no rename supported
 - no support for extended attributes and ACLs
