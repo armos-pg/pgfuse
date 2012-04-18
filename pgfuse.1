@@ -1,0 +1,79 @@
+.TH PgFuse "1" "04/18/2012" "PGFUSE" "User Commands"
+.SH NAME
+PgFuse \- FUSE-based file system with a PostgreSQL storage backend
+.SH SYNOPSIS
+.SS mounting
+\fBpgfuse <PostgreSQL connection string> <mountpoint> \fP [options]
+.SS unmounting
+\fBfusermount -u <mountpoint>
+.SH OPTIONS
+.SS "general options"
+.TP
+\fB-h\fR  \fB\-\-help\fR
+print help
+.TP
+\fB-V\fR  \fB\-\-version\fR
+print version
+.TP
+\fB-v\fR  \fB\-\-verbose\fR
+print verbose information into syslog (use with care!)
+.TP
+\fB\-f\fR
+FUSE foreground option - do not run as daemon.
+.TP
+\fB\-s\fR
+FUSE singlethreaded option (disables multi-threaded operation)
+.SS "Postgresql connection string"
+.TP
+PostgreSQL connection string can be any valid connection string as
+documented in the documentation of \fBlibpq\fR in function
+\fBPQconnectdb\fR.
+.TP
+All PostgresSQL connection parameters must be given in the form
+\fB<option_name>=<option_value>\fR, separated by spaces. So if
+you want to specify more than one parameter, you must quote the
+whole connection string.
+.TP 
+Here some of the most important parameters you can set:
+.TP
+\fBhost\fR
+The host running the PostgreSQL database. If ommitted communication
+is done via Unix domain sockets. 
+.TP
+\fBport\fR
+TCP-port of the PostgreSQL postmaster, default is 5432
+.TP
+\fBdbname\fR
+The PostgreSQL database to connect to. If not specified the name
+of the current Unix user is taken.
+.TP
+\fBuser\fR
+The PostgreSQL user to connect as. If not specified the name
+of the current Unix user is taken.
+.TP
+For more options have a look at the documentation of \fBlibpq\fR
+in function \fBPQconnectdb\fR.
+.TP
+\fBExample\fR: "host=foo.lan dbname=test user=test"
+.SS "Fuse and PgFuse options"
+Options are the normal FUSE options plus the special PgFuse options:
+.TP
+\fB-o\fR ro (default="")
+The default is to mount the filesystem read-writable. This can be
+overrules to allow only read-operations.
+.SH DESCRIPTION
+PgFuse is a FUSE filesystem which stores inodes and data into a
+PostgreSQL database.
+.SH BUGS
+.TP
+- no hard-links
+.TP
+- not able to store files bigger than MAX_FILE_SIZE (10MB)
+.TP
+- doesn't run multi-threaded currently (always give the -s option!)
+.TP
+- no rename supported
+.TP
+- no support for extended attributes and ACLs
+.SH AUTHOR
+PgFuse has been written by Andreas Baumann <abaumann@yahoo.com>
