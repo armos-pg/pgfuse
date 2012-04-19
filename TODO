@@ -1,8 +1,11 @@
 TODO list (in order of priority)
 ---------
 
+- readd truncate, add test, especially see if fuse also
+  increases the file with truncate
 - add tests for sparse files and funny read/write operations
-- sort out transaction
+- what is a transaction? couple to fsync/fdatasync
+  for files? other ideas? customizable?
 - allow for size_t and off_t (check int4 which should
   be int8, use be64ton and not htonl), flag for 64-bit
   (large filesystem)?
@@ -18,10 +21,6 @@ TODO list (in order of priority)
 - thread-synchronization (we can ommit the -s flag)
 - replace dir.path with a range search tree algo in DB
 - rename (after a redo of the dir table)
-- use of asynchonous read/writes
-- what is a transaction? couple to fsync/fdatasync
-  for files? other ideas? customizable?
-- use prepared statements, measure performance gain
 - establish self-containment (with respect to
   a temporarily unavailable Postgresql server)
 - minimal SELinux support, i.e. one fix security context
@@ -31,9 +30,12 @@ TODO list (in order of priority)
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
   - investigate SELinux races
   - make some performance tests, see http://archive09.linux.com/feature/127055
-- optimize using .flag_nullpath_ok = 1, check functions if they can live without
-  path (but for verbosity and error messages), maybe add path to PgFuseFile
-- make table names options, in order to store many pgfuse filesystems in one
-  database
+- optimizations:
+  - use prepared statements, measure performance gain
+  - use of asynchonous read/writes
+  - optimize using .flag_nullpath_ok = 1, check functions if they can live without
+    path (but for verbosity and error messages), maybe add path to PgFuseFile
+  - make table names options, in order to store many pgfuse filesystems in one
+    database
   
   

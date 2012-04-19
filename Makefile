@@ -70,6 +70,15 @@ test: pgfuse testfsync testpgsql
 	-stat mnt/dir/dir2/clink
 	# show filesystem stats (statvfs)
 	-stat -f mnt
+	# expect success, truncate a file (grow and shrink)
+	-touch mnt/trunc
+	-ls -al mnt/trunc
+	-truncate --size 2049 mnt/trunc
+	-ls -al mnt/trunc
+	-dd if=/dev/zero of=mnt/trunc bs=512 count=10
+	-truncate --size 513 mnt/trunc
+	-ls -al mnt/trunc
+	# END: unmount FUSE file system
 	fusermount -u mnt
 	
 pgfuse: pgfuse.o pgsql.o

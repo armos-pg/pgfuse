@@ -600,5 +600,44 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 
 int psql_truncate( PGconn *conn, const int id, const char *path, const off_t offset )
 {
+	PgDataInfo info;
+	int res;
+	PgMeta meta;
+	int param1;
+	int param2;
+	const char *values[2] = { (const char *)&param1, (const char *)&param2 };
+	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
+	int binary[2] = { 1, 1 };
+	PGresult *dbres;
+	
+	res = psql_get_meta( conn, path, &meta );
+	if( res < 0 ) {
+		return res;
+	}
+	
+	info = compute_block_info( 0, offset );
+	
+	param1 = htonl( id );
+	param2 = htonl( info.to_block );
+	
+	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::int4 AND block_no>$2::int4",
+		2, NULL, values, lengths, binary, 1 );
+	
+	if( PQresultStatus( dbres ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_truncate for file '%s' to size '%u': %s",
+			path, (unsigned int)offset, PQerrorMessage( conn ) );
+		PQclear( dbres );
+		return -EIO;
+	}
+	
+	PQclear( dbres );
+	
+	meta.size = offset;
+	
+	res = psql_write_meta( conn, id, path, meta );
+	if( res < 0 ) {
+		return res;
+	}
+	
 	return 0;
 }
