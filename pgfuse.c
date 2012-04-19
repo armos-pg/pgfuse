@@ -37,15 +37,6 @@
 #include "config.h"		/* compiled in defaults */
 #include "pgsql.h"		/* implements Postgresql accessers */
 
-/* --- internal file handles */
-
-typedef struct PgFuseFile {
-	int id;			/* id as in database, also passed in FUSE context */
-	int ref_count;		/* reference counter (for double opens, dup, etc.) */
-} PgFuseFile;
-
-static PgFuseFile pgfuse_files[MAX_NOF_OPEN_FILES];
-
 /* --- fuse callbacks --- */
 
 typedef struct PgFuseData {
@@ -90,8 +81,6 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 		data->read_only ? "read-only" : "read-write",
 		fuse_get_context( )->uid );
 	
-	memset( pgfuse_files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
-
 	data->conn = PQconnectdb( data->conninfo );
 	if( PQstatus( data->conn ) != CONNECTION_OK ) {
 		syslog( LOG_ERR, "Connection to database failed: %s",
@@ -238,7 +227,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	char *new_file;
 	int parent_id;
 	int res;
-	PgFuseFile *f;
 		
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -330,16 +318,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		syslog( LOG_DEBUG, "Id for new file '%s' is %d, thread #%d",
 			path, id, fuse_get_context( )->uid );
 	}
-		
-	if( pgfuse_files[id % MAX_NOF_OPEN_FILES].id != 0 ) {
-		free( copy_path );
-		return -EMFILE;
-	}
 	
-	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
-	f->id = id;
-	f->ref_count = 1;
-
 	fi->fh = id;
 	
 	free( copy_path );
@@ -353,7 +332,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgMeta meta;
 	int id;
-	PgFuseFile *f;
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -385,16 +363,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	if( meta.size > MAX_FILE_SIZE ) {
 		return -EFBIG;
 	}			
-	
-	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
-	
-	if( f->id != 0 ) {
-		return -EMFILE;
-	}
-	
-	f->id = id;
-	f->ref_count = 1;
-	
+		
 	fi->fh = id;
 	
 	return 0;
@@ -610,7 +579,6 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	PgFuseFile *f;
 		
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
@@ -621,19 +589,9 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		return -EBADF;
 	}
 
-	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-	
-	f->ref_count--;
-	if( f->ref_count > 0 ) {
-		return 0;
-	}
-
 	if( data->read_only ) {
-		f->id = 0;
 		return 0;
 	}
-		
-	f->id = 0;
 
 	return 0;
 }
@@ -642,7 +600,6 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
                          off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	PgFuseFile *f;
 	int res;
 	PgMeta meta;
 
@@ -659,9 +616,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	if( data->read_only ) {
 		return -EBADF;
 	}
-	
-	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-	
+		
 	res = psql_get_meta( data->conn, path, &meta );
 	if( res < 0 ) {
 		return res;
@@ -671,7 +626,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		meta.size = offset + size;
 	}
 	
-	res = psql_write_buf( data->conn, f->id, path, buf, offset, size, data->verbose );
+	res = psql_write_buf( data->conn, fi->fh, path, buf, offset, size, data->verbose );
 	if( res < 0 ) {
 		return res;
 	}
@@ -681,7 +636,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		return -EIO;
 	}
 	
-	res = psql_write_meta( data->conn, f->id, path, meta );
+	res = psql_write_meta( data->conn, fi->fh, path, meta );
 	if( res < 0 ) {
 		return res;
 	}
@@ -693,7 +648,6 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
                         off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	PgFuseFile *f;
 	int res;
 
 	if( data->verbose ) {
@@ -706,13 +660,10 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 		return -EBADF;
 	}
 
-	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-
-	res = psql_read_buf( data->conn, f->id, path, buf, offset, size, data->verbose );
+	res = psql_read_buf( data->conn, fi->fh, path, buf, offset, size, data->verbose );
 	if( res != size ) {
 		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
 			path, size, res, data->mountpoint );
-		f->id = 0;
 		return -EIO;
 	}
 		
@@ -724,7 +675,6 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
 	PgMeta meta;
-	PgFuseFile *f;
 	int res;
 
 	if( data->verbose ) {
@@ -750,19 +700,13 @@ static int pgfuse_truncate( const char* path, off_t offset )
 		return -EROFS;
 	}
 
-	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
-
-	if( f->id == 0 ) {
-		return -EBADF;
-	}
-
-	res = psql_truncate( data->conn, f->id, path, offset );
+	res = psql_truncate( data->conn, id, path, offset );
 	if( res < 0 ) {
 		return res;
 	}
 	
 	meta.size = offset;
-	res = psql_write_meta( data->conn, f->id, path, meta );
+	res = psql_write_meta( data->conn, id, path, meta );
 	
 	return res;
 }
@@ -770,7 +714,6 @@ static int pgfuse_truncate( const char* path, off_t offset )
 static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	PgFuseFile *f;
 	int res;
 	PgMeta meta;
 
@@ -788,21 +731,19 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 		return -EROFS;
 	}
 	
-	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-
 	res = psql_get_meta( data->conn, path, &meta );
 	if( res < 0 ) {
 		return res;
 	}
 	
-	res = psql_truncate( data->conn, f->id, path, offset );
+	res = psql_truncate( data->conn, fi->fh, path, offset );
 	if( res < 0 ) {
 		return res;
 	}
 	
 	meta.size = offset;
 	
-	res = psql_write_meta( data->conn, f->id, path, meta );
+	res = psql_write_meta( data->conn, fi->fh, path, meta );
 	
 	return res;
 }
