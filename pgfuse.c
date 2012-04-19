@@ -30,7 +30,7 @@
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
 
-#include <pthread.h>		/* for mutexes */
+#include <pthread.h>		/* for pthread_self */
 
 #if FUSE_VERSION < 28
 #error Currently only written for newest FUSE  APIversion (FUSE_VERSION 28)
