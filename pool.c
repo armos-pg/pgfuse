@@ -36,7 +36,7 @@ int psql_pool_init( PgConnPool *pool, const char *conninfo, const size_t max_con
 		return -ENOMEM;
 	}
 	
-	pool->avail = (pid_t *)malloc( sizeof( pid_t ) * max_connections );
+	pool->avail = (pthread_t *)malloc( sizeof( pthread_t ) * max_connections );
 	if( pool->avail == NULL ) {
 		free( pool->conns );
 		return -ENOMEM;
@@ -102,8 +102,8 @@ int psql_pool_destroy( PgConnPool *pool )
 		if( pool->avail[i] == AVAILABLE ) {
 			PQfinish( pool->conns[i] );
 		} else if( pool->avail[i] > 0 ) {
-			syslog( LOG_ERR, "Destroying pool connection to thread '%d' which is still in use",
-				pool->avail[i] );
+			syslog( LOG_ERR, "Destroying pool connection to thread '%u' which is still in use",
+				(unsigned int)pool->avail[i] );
 			PQfinish( pool->conns[i] );
 		}
 	}
@@ -116,7 +116,7 @@ int psql_pool_destroy( PgConnPool *pool )
 	return ( res1 < 0 ) ? res1 : res2;
 }
 
-PGconn *psql_pool_acquire( PgConnPool *pool , pid_t pid )
+PGconn *psql_pool_acquire( PgConnPool *pool )
 {
 	int res;
 	size_t i;
@@ -124,7 +124,8 @@ PGconn *psql_pool_acquire( PgConnPool *pool , pid_t pid )
 	for( ;; ) {
 		res = pthread_mutex_lock( &pool->lock );
 		if( res < 0 ) {
-			syslog( LOG_ERR, "Locking mutex failed for thread '%d': %d", pid, res );
+			syslog( LOG_ERR, "Locking mutex failed for thread '%u': %d",
+				(unsigned int)pthread_self( ), res );
 			return NULL;
 		}
 		
@@ -132,7 +133,7 @@ PGconn *psql_pool_acquire( PgConnPool *pool , pid_t pid )
 		for( i = 0; i < pool->size; i++ ) {
 			if( pool->avail[i] == AVAILABLE ) {
 				if( PQstatus( pool->conns[i] ) == CONNECTION_OK ) {
-					pool->avail[i] = pid;
+					pool->avail[i] = pthread_self( );
 					(void)pthread_mutex_unlock( &pool->lock );
 					return pool->conns[i];
 				} else {
@@ -144,7 +145,9 @@ PGconn *psql_pool_acquire( PgConnPool *pool , pid_t pid )
 		/* wait on conditional till a free connection is signalled */
 		res = pthread_cond_wait( &pool->cond, &pool->lock );
 		if( res < 0 ) {
-			syslog( LOG_ERR, "Error waiting for free condition in thread '%d': %d", pid, res );
+			syslog( LOG_ERR, "Error waiting for free condition in thread '%u': %d",
+				(unsigned int)pthread_self( ), res );
+			(void)pthread_mutex_unlock( &pool->lock );
 			return NULL;
 		}
 		
@@ -155,7 +158,7 @@ PGconn *psql_pool_acquire( PgConnPool *pool , pid_t pid )
 	return NULL;
 }
 
-int psql_pool_release( PgConnPool *pool, pid_t pid )
+int psql_pool_release( PgConnPool *pool, PGconn *conn )
 {
 	int res;
 	int i;
@@ -163,8 +166,8 @@ int psql_pool_release( PgConnPool *pool, pid_t pid )
 	res = pthread_mutex_lock( &pool->lock );
 	if( res < 0 ) return res;
 	
-	for( i = pool->size-1; i >= 0; i-- ) {
-		if( pool->avail[i] == pid ) {
+	for( i = 1; i < pool->size; i++ ) {
+		if( pool->conns[i] == conn ) {
 			break;
 		}
 	}

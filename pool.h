@@ -27,7 +27,7 @@
 typedef struct PgConnPool {
 	PGconn **conns;		/* array of connections */
 	size_t size;		/* max number of connections */
-	pid_t *avail;		/* slots of allocated/available connections per thread */
+	pthread_t *avail;	/* slots of allocated/available connections per thread */
 	pthread_mutex_t lock;	/* monitor lock */
 	pthread_cond_t cond;	/* condition signalling a free connection */
 } PgConnPool;
@@ -36,8 +36,8 @@ int psql_pool_init( PgConnPool *pool, const char *conninfo, const size_t max_con
 
 int psql_pool_destroy( PgConnPool *pool );
 
-PGconn *psql_pool_acquire( PgConnPool *pool, pid_t pid );
+PGconn *psql_pool_acquire( PgConnPool *pool );
 
-int psql_pool_release( PgConnPool *pool, pid_t pid );
+int psql_pool_release( PgConnPool *pool, PGconn *conn );
 
 #endif

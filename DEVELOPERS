@@ -112,3 +112,9 @@ commands of the shell).
 bonnie is a good stress and performance tester. Don't despair because
 of poor performance, that's normal. :-)
 
+Several shells in parallel doing:
+
+while(true);do
+	mkdir mnt/bla
+	rmdir mnt/bla
+done
