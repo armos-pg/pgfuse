@@ -34,9 +34,4 @@
 
 #define MAX_DB_CONNECTIONS	8
 
-/* maximal number of open files, may vary as there may be hashtable
- * collitions. Must be a prime */
-
-#define MAX_NOF_OPEN_FILES     257
-
 #endif

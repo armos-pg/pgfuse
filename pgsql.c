@@ -99,7 +99,7 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	int lengths[1] = { strlen( path ) };
 	int binary[1] = { 1 };
 	
-	res = PQexecParams( conn, "SELECT id, size, mode, uid, gid, ctime, mtime, atime, ref_count FROM dir WHERE path = $1::varchar",
+	res = PQexecParams( conn, "SELECT id, size, mode, uid, gid, ctime, mtime, atime FROM dir WHERE path = $1::varchar",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -150,10 +150,6 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	idx = PQfnumber( res, "atime" );
 	data = PQgetvalue( res, 0, idx );
 	meta->atime = convert_from_timestamp( *( (uint64_t *)data ) );
-
-	idx = PQfnumber( res, "ref_count" );
-	data = PQgetvalue( res, 0, idx );
-	meta->ref_count = ntohl( *( (uint32_t *)data ) );
 	
 	PQclear( res );
 	
@@ -170,14 +166,13 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 	uint64_t param6 = convert_to_timestamp( meta.ctime );
 	uint64_t param7 = convert_to_timestamp( meta.mtime );
 	uint64_t param8 = convert_to_timestamp( meta.atime );
-	int param9 = htonl( meta.ref_count );
-	const char *values[9] = { (const char *)&param1, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8, (const char *)&param9 };
-	int lengths[9] = { sizeof( param1 ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ), sizeof( param9 ) };
-	int binary[9] = { 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+	const char *values[8] = { (const char *)&param1, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8 };
+	int lengths[8] = { sizeof( param1 ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ) };
+	int binary[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4, mode=$3::int4, uid=$4::int4, gid=$5::int4, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp, ref_count=$9::int4 WHERE id=$1::int4",
-		9, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4, mode=$3::int4, uid=$4::int4, gid=$5::int4, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp WHERE id=$1::int4",
+		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_write_meta for file '%s': %s", path, PQerrorMessage( conn ) );
@@ -200,14 +195,13 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	uint64_t param6 = convert_to_timestamp( meta.ctime );
 	uint64_t param7 = convert_to_timestamp( meta.mtime );
 	uint64_t param8 = convert_to_timestamp( meta.atime );
-	int param9 = htonl( meta.ref_count );
-	const char *values[11] = { (const char *)&param1, new_file, path, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8, (const char *)&param9 };
-	int lengths[11] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ), sizeof( param9 ) };
-	int binary[11] = { 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 };
+	const char *values[11] = { (const char *)&param1, new_file, path, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8 };
+	int lengths[11] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ) };
+	int binary[11] = { 1, 0, 0, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, size, mode, uid, gid, ctime, mtime, atime, ref_count ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4, $7::int4, $8::timestamp, $9::timestamp, $10::timestamp, $11::int4 )",
-		11, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4, $7::int4, $8::timestamp, $9::timestamp, $10::timestamp )",
+		10, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",

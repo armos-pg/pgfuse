@@ -42,18 +42,12 @@
 
 /* --- FUSE private context data --- */
 
-typedef struct PgFuseFile {
-	int id;			/* id as in the database and in the FUSE context (fh) */
-	pthread_mutex_t lock;	/* lock parallel thread operations on the same file */
-} PgFuseFile;
-
 typedef struct PgFuseData {
 	int verbose;		/* whether we should be verbose */
 	char *conninfo;		/* connection info as used in PQconnectdb */
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	PGconn *conn;		/* the database handle to operate on (single-thread only) */
 	PgConnPool pool;	/* the database pool to operate on (multi-thread only) */
-	PgFuseFile files[MAX_NOF_OPEN_FILES]; /* synchronization array (multi-thread only) */
 	int read_only;		/* whether the mount point is read-only */
 	int multi_threaded;	/* whether we run multi-threaded */
 } PgFuseData;
@@ -129,38 +123,10 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 		}
 	} else {
 		int res;
-		int i;
-		pthread_mutexattr_t attr;
 
 		res = psql_pool_init( &data->pool, data->conninfo, MAX_DB_CONNECTIONS );
 		if( res < 0 ) {
 			syslog( LOG_ERR, "Allocating database connection pool failed!" );
-			exit( EXIT_FAILURE );
-		}
-
-		res = pthread_mutexattr_init( &attr );
-		if( res < 0 ) {		
-			syslog( LOG_ERR, "Error while initalizing thread attributes: %d!", res );
-			exit( EXIT_FAILURE );
-		}
-		res = pthread_mutexattr_settype( &attr, PTHREAD_MUTEX_ERRORCHECK );
-		if( res < 0 ) {
-			syslog( LOG_ERR, "Error while setting thread attributes: %d!", res );
-			exit( EXIT_FAILURE );
-		}
-		
-		memset( &data->files, 0, sizeof( PgFuseFile ) * MAX_NOF_OPEN_FILES );
-		for( i = 0; i < MAX_NOF_OPEN_FILES; i++ ) {
-			res = pthread_mutex_init( &data->files[i].lock, &attr );
-			if( res < 0 ) {
-				syslog( LOG_ERR, "Error while initializing mutex: %d!", res );
-				exit( EXIT_FAILURE );
-			}
-		}
-
-		res = pthread_mutexattr_destroy( &attr );
-		if( res < 0 ) {
-			syslog( LOG_ERR, "Error while destroying thread attributes: %d!", res );
 			exit( EXIT_FAILURE );
 		}
 	}
@@ -171,7 +137,6 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 static void pgfuse_destroy( void *userdata )
 {
 	PgFuseData *data = (PgFuseData *)userdata;
-	int i;
 	
 	syslog( LOG_INFO, "Unmounting file system on '%s' (%s), thread #%u",
 		data->mountpoint, data->conninfo, THREAD_ID );
@@ -180,10 +145,6 @@ static void pgfuse_destroy( void *userdata )
 		PQfinish( data->conn );
 	} else {
 		(void)psql_pool_destroy( &data->pool );
-	}
-	
-	for( i = 0; i < MAX_NOF_OPEN_FILES; i++ ) {
-		(void)pthread_mutex_destroy( &data->files[i].lock );
 	}
 }
 
@@ -408,7 +369,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	meta.ctime = now( );
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
-	meta.ref_count = 1;
 	
 	res = psql_create_file( conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
@@ -463,13 +423,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		return id;
 	}
 	
-	/* currently don't allow parallel access */
-/*
-  	if( meta.ref_count > 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -ETXTBSY;
-	}
-*/	
 	if( data->verbose ) {
 		syslog( LOG_DEBUG, "Id for file '%s' to open is %d, thread #%u",
 			path, id, THREAD_ID );
@@ -486,8 +439,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 			return -EROFS;
 		}
 	}
-		
-	meta.ref_count = 1;
 	
 	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
@@ -723,12 +674,6 @@ static int pgfuse_unlink( const char *path )
 		return -EROFS;
 	}
 
-	/* currently don't allow parallel access */
-	if( meta.ref_count > 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -ETXTBSY;
-	}
-			
 	res = psql_delete_file( conn, id, path );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -803,9 +748,7 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
-	
-	meta.ref_count = 0;
-	
+		
 	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );

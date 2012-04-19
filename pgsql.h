@@ -36,7 +36,6 @@ typedef struct PgMeta {
 	struct timespec ctime;	/* last status change time */
 	struct timespec mtime;	/* last modification time */
 	struct timespec atime;	/* last access time */
-	int ref_count;		/* how many open file handles exist for this file */
 } PgMeta;
 
 /* --- transaction management and policies --- */
