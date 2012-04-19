@@ -148,13 +148,13 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	PgMeta meta;
 	PGconn *conn;
 	
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "FgetAttrs '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
@@ -194,13 +194,13 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "GetAttrs '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
@@ -283,15 +283,15 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );		
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
 		syslog( LOG_INFO, "Create '%s' in mode '%o' on '%s' with flags '%s', thread #%d",
 			path, mode, data->mountpoint, s, fuse_get_context( )->uid );
 		if( *s != '<' ) free( s );
 	}
+	
+	ACQUIRE( conn );		
+	PSQL_BEGIN( conn );
 	
 	if( data->read_only ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -401,15 +401,15 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
 		syslog( LOG_INFO, "Open '%s' on '%s' with flags '%s', thread #%d",
 			path, data->mountpoint, s, fuse_get_context( )->uid );
 		if( *s != '<' ) free( s );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
@@ -470,13 +470,13 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );	
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Readdir '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
+	
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 	
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
@@ -521,15 +521,15 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s', thread #%d",
 			path, (unsigned int)mode, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
 
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
+	
 	if( data->read_only ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
@@ -601,14 +601,14 @@ static int pgfuse_rmdir( const char *path )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );	
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Rmdir '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
+	
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -648,13 +648,13 @@ static int pgfuse_unlink( const char *path )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Remove file '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
+	
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
@@ -733,13 +733,13 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );		
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );		
+	PSQL_BEGIN( conn );
 
 	if( fi->fh == 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -778,15 +778,15 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%d",
 			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
 
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
+	
 	if( fi->fh == 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
@@ -837,14 +837,14 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s', thread #%d",
 			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( fi->fh == 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -870,13 +870,13 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
 			path, (unsigned int)offset, data->mountpoint, fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
@@ -924,14 +924,14 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
 			path, (unsigned int)offset, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( fi->fh == 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -1008,14 +1008,14 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Chmod on '%s' to mode '%o' on '%s', thread #%d",
 			path, (unsigned int)mode, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
+	
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
@@ -1044,14 +1044,14 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );	
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Chown on '%s' to uid '%d' and gid '%d' on '%s', thread #%d",
 			path, (unsigned int)uid, (unsigned int)gid, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
+	
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 	
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
@@ -1085,14 +1085,14 @@ static int pgfuse_symlink( const char *from, const char *to )
 	PgMeta meta;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Symlink from '%s' to '%s' on '%s', thread #%d",
 			from, to, data->mountpoint, fuse_get_context( )->uid );
 	}
 
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
+	
 	if( data->read_only ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
@@ -1183,14 +1183,14 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );	
-	PSQL_BEGIN( conn );
-
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Dereferencing symlink '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
+
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -1227,14 +1227,14 @@ static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 	int res;
 	PGconn *conn;
 
-	ACQUIRE( conn );
-	PSQL_BEGIN( conn );
-	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Utimens on '%s' to access time '%d' and modification time '%d' on '%s', thread #%d",
 			path, (unsigned int)tv[0].tv_sec, (unsigned int)tv[1].tv_sec, data->mountpoint,
 			fuse_get_context( )->uid );
 	}
+	
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
