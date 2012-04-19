@@ -296,6 +296,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	meta.ctime = now( );
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
+	meta.ref_count = 1;
 	
 	res = psql_create_file( data->conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
@@ -303,11 +304,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return res;
 	}
 	
-	/* get id and store it, remember it in the hash of open files
-	 * the hash function is currently the inode (i.e. the serial
-	 * in the 'id' field module hashtable size, avoiding a much
-	 * more complicated implementation for no good here
-	 */
 	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		free( copy_path );
@@ -332,6 +328,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgMeta meta;
 	int id;
+	int res;
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -343,6 +340,11 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	id = psql_get_meta( data->conn, path, &meta );
 	if( id < 0 ) {
 		return id;
+	}
+	
+	/* currently don't allow parallel access */
+	if( meta.ref_count > 0 ) {
+		return -ETXTBSY;
 	}
 	
 	if( data->verbose ) {
@@ -362,7 +364,14 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	
 	if( meta.size > MAX_FILE_SIZE ) {
 		return -EFBIG;
-	}			
+	}
+	
+	meta.ref_count = 1;
+	
+	res = psql_write_meta( data->conn, id, path, meta );
+	if( res < 0 ) {
+		return res;
+	}	
 		
 	fi->fh = id;
 	
@@ -579,6 +588,9 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int id;
+	int res;
+	PgMeta meta;
 		
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
@@ -592,8 +604,17 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	if( data->read_only ) {
 		return 0;
 	}
+	
+	id = psql_get_meta( data->conn, path, &meta );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	meta.ref_count = 0;
+	
+	res = psql_write_meta( data->conn, id, path, meta );
 
-	return 0;
+	return res;
 }
 
 static int pgfuse_write( const char *path, const char *buf, size_t size,
