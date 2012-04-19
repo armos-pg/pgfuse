@@ -26,12 +26,6 @@
 
 #define STANDARD_BLOCK_SIZE	512
 
-/* maximum size of a file, rather arbitrary, 2^31 is a current implementation
- * limit, before fixing this, the storing and efficiency has to be rethought
- * anyway.. */
-
-#define MAX_FILE_SIZE		10485760
-
 /* maximum length of a filename , rather arbitrary choice */
 
 #define MAX_FILENAME_LENGTH	4096

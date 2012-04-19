@@ -1,8 +1,6 @@
 TODO list (in order of priority)
 ---------
 
-- readd truncate, add test, especially see if fuse also
-  increases the file with truncate
 - add tests for sparse files and funny read/write operations
 - what is a transaction? couple to fsync/fdatasync
   for files? other ideas? customizable?

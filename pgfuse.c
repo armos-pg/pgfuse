@@ -361,11 +361,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 			return -EROFS;
 		}
 	}
-	
-	if( meta.size > MAX_FILE_SIZE ) {
-		return -EFBIG;
-	}
-	
+		
 	meta.ref_count = 1;
 	
 	res = psql_write_meta( data->conn, id, path, meta );
