@@ -641,3 +641,51 @@ int psql_truncate( PGconn *conn, const int id, const char *path, const off_t off
 	
 	return 0;
 }
+
+int psql_begin( PGconn *conn )
+{
+	PGresult *res;
+	
+	res = PQexec( conn, "BEGIN" );
+	
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Begin of transaction failed!!" );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}
+
+int psql_commit( PGconn *conn )
+{
+	PGresult *res;
+	
+	res = PQexec( conn, "COMMIT" );
+	
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Commit of transaction failed!!" );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}
+
+int psql_rollback( PGconn *conn )
+{
+	PGresult *res;
+	
+	res = PQexec( conn, "ROLLBACK" );
+	
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Rollback of transaction failed!!" );
+		return -EIO;
+	}
+	
+	PQclear( res );
+	
+	return 0;
+}

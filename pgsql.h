@@ -37,6 +37,33 @@ typedef struct PgMeta {
 	int ref_count;		/* how many open file handles exist for this file */
 } PgMeta;
 
+#define PSQL_BEGIN( T ) \
+	{ \
+		int __res; \
+		__res = psql_begin( T ); \
+		if( __res < 0 ) return __res; \
+	}
+
+#define PSQL_COMMIT( T ) \
+	{ \
+		int __res; \
+		__res = psql_commit( T ); \
+		if( __res < 0 ) return __res; \
+	}
+
+#define PSQL_ROLLBACK( T ) \
+	{ \
+		int __res; \
+		__res = psql_rollback( T ); \
+		if( __res < 0 ) return __res; \
+	}
+
+int psql_begin( PGconn *conn );
+
+int psql_commit( PGconn *conn );
+
+int psql_rollback( PGconn *conn );
+
 int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta );
 
 int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta );

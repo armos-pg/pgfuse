@@ -2,8 +2,6 @@ TODO list (in order of priority)
 ---------
 
 - add tests for sparse files and funny read/write operations
-- what is a transaction? couple to fsync/fdatasync
-  for files? other ideas? customizable?
 - allow for size_t and off_t (check int4 which should
   be int8, use be64ton and not htonl), flag for 64-bit
   (large filesystem)?

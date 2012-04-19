@@ -5,6 +5,8 @@ Internal documentation for developers
    Design decisions
       Storage of binarydata
       Directory tree in database
+      Transaction Policies
+      Self-containment
    Testing
 
 Coding guidelines
@@ -79,6 +81,18 @@ Naive implementation
   
 TODO...
 
+Transaction Policies
+--------------------
+
+Fundamental querstion: What file operations should form a database transaction?
+  
+one extreme: isolate threads and all file operations in one transaction
+other extreme: "autocommit" (every write, every read, etc.), this allows
+for parallel usage, as long as we have ref_count and an exclusive
+locking, this extreme makes no sense
+
+specify transaction strategy as mount options?
+  
 Self-containment
 ----------------
 
