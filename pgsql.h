@@ -26,6 +26,8 @@
 
 #include <libpq-fe.h>		/* for Postgresql database access */
 
+/* --- metadata stored about a file/directory/synlink --- */
+
 typedef struct PgMeta {
 	size_t size;		/* the size of the file */
 	mode_t mode;		/* type and permissions of file/directory */
@@ -37,6 +39,7 @@ typedef struct PgMeta {
 	int ref_count;		/* how many open file handles exist for this file */
 } PgMeta;
 
+/* --- transaction management and policies --- */
 #define PSQL_BEGIN( T ) \
 	{ \
 		int __res; \
@@ -63,6 +66,8 @@ int psql_begin( PGconn *conn );
 int psql_commit( PGconn *conn );
 
 int psql_rollback( PGconn *conn );
+
+/* --- the filesystem functions --- */
 
 int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta );
 

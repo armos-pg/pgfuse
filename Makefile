@@ -17,12 +17,12 @@ CFLAGS += -D_FILE_OFFSET_BITS=64
 # release
 # use pkg-config to detemine compiler/linker flags for libfuse
 CFLAGS += `pkg-config fuse --cflags`
-LDFLAGS = `pkg-config fuse --libs` -lpq
+LDFLAGS = `pkg-config fuse --libs` -lpq -pthread
 
 PG_CONNINFO = ""
 
 clean:
-	rm -f pgfuse pgfuse.o pgsql.o
+	rm -f pgfuse pgfuse.o pgsql.o pool.o
 	rm -f testfsync testfsync.o
 	rm -f testpgsql testpgsql.o
 	psql < clean.sql
@@ -81,15 +81,18 @@ test: pgfuse testfsync testpgsql
 	# END: unmount FUSE file system
 	fusermount -u mnt
 	
-pgfuse: pgfuse.o pgsql.o
-	$(CC) -o pgfuse pgfuse.o pgsql.o $(LDFLAGS) 
+pgfuse: pgfuse.o pgsql.o pool.o
+	$(CC) -o pgfuse pgfuse.o pgsql.o pool.o $(LDFLAGS) 
 
-pgfuse.o: pgfuse.c pgsql.h
+pgfuse.o: pgfuse.c pgsql.h pool.h config.h
 	$(CC) -c $(CFLAGS) -o pgfuse.o pgfuse.c
 
-pgsql.o: pgsql.c pgsql.h
+pgsql.o: pgsql.c pgsql.h config.h
 	$(CC) -c $(CFLAGS) -o pgsql.o pgsql.c
 
+pool.o: pool.c pool.h
+	$(CC) -c $(CFLAGS) -o pool.o pool.c
+	
 testfsync: testfsync.o
 	$(CC) -o testfsync testfsync.o
 

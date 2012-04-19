@@ -30,4 +30,7 @@
 
 #define MAX_FILENAME_LENGTH	4096
 
+/* maximum number of open database connections */
+#define MAX_DB_CONNECTIONS	8
+
 #endif

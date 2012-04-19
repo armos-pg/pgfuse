@@ -36,6 +36,7 @@
 
 #include "config.h"		/* compiled in defaults */
 #include "pgsql.h"		/* implements Postgresql accessers */
+#include "pool.h"		/* implements the connection pool */
 
 /* --- fuse callbacks --- */
 
@@ -43,7 +44,8 @@ typedef struct PgFuseData {
 	int verbose;		/* whether we should be verbose */
 	char *conninfo;		/* connection info as used in PQconnectdb */
 	char *mountpoint;	/* where we mount the virtual filesystem */
-	PGconn *conn;		/* the database handle to operate on */
+	PGconn *conn;		/* the database handle to operate on (single-thread) */
+	PgConnPool pool;	/* the database pool to operate on (multi-thread) */
 	int read_only;		/* whether the mount point is read-only */
 	int multi_threaded;	/* whether we run multi-threaded */
 } PgFuseData;
@@ -81,11 +83,22 @@ static void *pgfuse_init( struct fuse_conn_info *conn )
 		data->read_only ? "read-only" : "read-write",
 		fuse_get_context( )->uid );
 	
-	data->conn = PQconnectdb( data->conninfo );
-	if( PQstatus( data->conn ) != CONNECTION_OK ) {
-		syslog( LOG_ERR, "Connection to database failed: %s",
-			PQerrorMessage( data->conn ) );
-		PQfinish( data->conn );
+	/* in single-threaded case we just need one shared PostgreSQL connection */
+	if( !data->multi_threaded ) {
+		data->conn = PQconnectdb( data->conninfo );
+		if( PQstatus( data->conn ) != CONNECTION_OK ) {
+			syslog( LOG_ERR, "Connection to database failed: %s",
+				PQerrorMessage( data->conn ) );
+			PQfinish( data->conn );
+			exit( EXIT_FAILURE );
+		}
+	} else {
+		int res;
+		res = psql_pool_init( &data->pool, data->conninfo, MAX_DB_CONNECTIONS );
+		if( res < 0 ) {
+			syslog( LOG_ERR, "Allocating database connection pool failed!" );
+			exit( EXIT_FAILURE );
+		}
 	}
 	
 	return data;
@@ -97,17 +110,46 @@ static void pgfuse_destroy( void *userdata )
 
 	syslog( LOG_INFO, "Unmounting file system on '%s' (%s), thread #%d",
 		data->mountpoint, data->conninfo, fuse_get_context( )->uid );
-	
-	PQfinish( data->conn );
+
+	if( !data->multi_threaded ) {
+		PQfinish( data->conn );
+	} else {
+		(void)psql_pool_destroy( &data->pool );
+	}
 }
+
+static PGconn *psql_acquire( PgFuseData *data )
+{
+	if( !data->multi_threaded ) {
+		return data->conn;
+	}
+	
+	return psql_pool_acquire( &data->pool, fuse_get_context( )->pid );
+}
+
+static void psql_release( PgFuseData *data )
+{
+	if( !data->multi_threaded ) return;
+	
+	(void)psql_pool_release( &data->pool, fuse_get_context( )->pid );
+}
+
+#define ACQUIRE( C ) \
+	C = psql_acquire( data ); \
+	if( C == NULL ) return -EIO;
+	
+#define RELEASE( C ) \
+	(void)psql_release( data )
 
 static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
 	PgMeta meta;
+	PGconn *conn;
 	
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "FgetAttrs '%s' on '%s', thread #%d",
@@ -116,9 +158,9 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 
@@ -140,7 +182,7 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	stbuf->st_uid = meta.uid;
 	stbuf->st_gid = meta.gid;
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn );
 	
 	return 0;
 }
@@ -150,8 +192,10 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int id;
 	PgMeta meta;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "GetAttrs '%s' on '%s', thread #%d",
@@ -160,9 +204,9 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 
@@ -187,7 +231,7 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	stbuf->st_mtime = meta.mtime.tv_sec;
 	stbuf->st_ctime = meta.ctime.tv_sec;
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -237,8 +281,10 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	char *new_file;
 	int parent_id;
 	int res;
-		
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );		
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -248,13 +294,13 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 && id != -ENOENT ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
@@ -265,30 +311,30 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		}
 		
 		if( S_ISDIR(meta.mode ) ) {
-			PSQL_ROLLBACK( data->conn );
+			PSQL_ROLLBACK( conn ); RELEASE( conn );
 			return -EISDIR;
 		}
 		
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EEXIST;
 	}
 	
 	copy_path = strdup( path );
 	if( copy_path == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Create '%s'!", path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_meta( data->conn, parent_path, &meta );
+	parent_id = psql_get_meta( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
 	}
 	if( !S_ISDIR(meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOENT;
 	}
 	
@@ -302,7 +348,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	if( copy_path == NULL ) {
 		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Create '%s'!", path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
@@ -318,17 +364,17 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	meta.atime = meta.ctime;
 	meta.ref_count = 1;
 	
-	res = psql_create_file( data->conn, parent_id, path, new_file, meta );
+	res = psql_create_file( conn, parent_id, path, new_file, meta );
 	if( res < 0 ) {
 		free( copy_path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
 		free( copy_path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
@@ -341,7 +387,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	free( copy_path );
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return res;
 }
@@ -353,8 +399,10 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	PgMeta meta;
 	int id;
 	int res;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		char *s = flags_to_string( fi->flags );
@@ -363,15 +411,15 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 		if( *s != '<' ) free( s );
 	}
 
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
 	/* currently don't allow parallel access */
 	if( meta.ref_count > 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ETXTBSY;
 	}
 	
@@ -381,28 +429,28 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 		
 	if( S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EISDIR;
 	}
 	
 	if( data->read_only ) {
 		if( ( fi->flags & O_ACCMODE ) != O_RDONLY ) {
-			PSQL_ROLLBACK( data->conn );
+			PSQL_ROLLBACK( conn ); RELEASE( conn );
 			return -EROFS;
 		}
 	}
 		
 	meta.ref_count = 1;
 	
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}	
 		
 	fi->fh = id;
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -420,8 +468,10 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	int id;
 	int res;
 	PgMeta meta;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Readdir '%s' on '%s', thread #%d",
@@ -431,19 +481,19 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
-	res = psql_readdir( data->conn, id, buf, filler );
+	res = psql_readdir( conn, id, buf, filler );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -469,8 +519,10 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	int parent_id;
 	int res;
 	PgMeta meta;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Mkdir '%s' in mode '%o' on '%s', thread #%d",
@@ -479,26 +531,26 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 	
 	copy_path = strdup( path );
 	if( copy_path == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_meta( data->conn, parent_path, &meta );
+	parent_id = psql_get_meta( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
 	}
 	if( !S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOENT;
 	}
 	
@@ -512,7 +564,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	if( copy_path == NULL ) {
 		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Mkdir '%s'!", path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
@@ -527,16 +579,16 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
 	
-	res = psql_create_dir( data->conn, parent_id, path, new_dir, meta );
+	res = psql_create_dir( conn, parent_id, path, new_dir, meta );
 	if( res < 0 ) {
 		free( copy_path );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 
 	free( copy_path );
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -547,21 +599,23 @@ static int pgfuse_rmdir( const char *path )
 	int id;
 	int res;
 	PgMeta meta;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Rmdir '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	if( !S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOTDIR;
 	}
 	
@@ -571,17 +625,17 @@ static int pgfuse_rmdir( const char *path )
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 				
-	res = psql_delete_dir( data->conn, id, path );
+	res = psql_delete_dir( conn, id, path );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -592,21 +646,23 @@ static int pgfuse_unlink( const char *path )
 	int id;
 	int res;
 	PgMeta meta;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Remove file '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	if( S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EPERM;
 	}
 	
@@ -616,23 +672,23 @@ static int pgfuse_unlink( const char *path )
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 
 	/* currently don't allow parallel access */
 	if( meta.ref_count > 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ETXTBSY;
 	}
 			
-	res = psql_delete_file( data->conn, id, path );
+	res = psql_delete_file( conn, id, path );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -675,8 +731,10 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	int id;
 	int res;
 	PgMeta meta;
-		
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );		
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
@@ -684,30 +742,30 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 	}
 
 	if( fi->fh == 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return 0;
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
 	meta.ref_count = 0;
 	
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 
 	return 0;
 }
@@ -718,8 +776,10 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int res;
 	PgMeta meta;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%d",
@@ -728,18 +788,18 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	}
 
 	if( fi->fh == 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
 		
-	res = psql_get_meta( data->conn, path, &meta );
+	res = psql_get_meta( conn, path, &meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
@@ -747,25 +807,25 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		meta.size = offset + size;
 	}
 	
-	res = psql_write_buf( data->conn, fi->fh, path, buf, offset, size, data->verbose );
+	res = psql_write_buf( conn, fi->fh, path, buf, offset, size, data->verbose );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	if( res != size ) {
 		syslog( LOG_ERR, "Write size mismatch in file '%s' on mountpoint '%s', expected '%d' to be written, but actually wrote '%d' bytes! Data inconistency!",
 			path, data->mountpoint, size, res );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EIO;
 	}
 	
-	res = psql_write_meta( data->conn, fi->fh, path, meta );
+	res = psql_write_meta( conn, fi->fh, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return size;
 }
@@ -775,8 +835,10 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int res;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s', thread #%d",
@@ -785,19 +847,19 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	}
 
 	if( fi->fh == 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
 
-	res = psql_read_buf( data->conn, fi->fh, path, buf, offset, size, data->verbose );
+	res = psql_read_buf( conn, fi->fh, path, buf, offset, size, data->verbose );
 	if( res != size ) {
 		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
 			path, size, res, data->mountpoint );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EIO;
 	}
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 		
 	return size;
 }
@@ -808,22 +870,24 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	int id;
 	PgMeta meta;
 	int res;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
 			path, (unsigned int)offset, data->mountpoint, fuse_get_context( )->uid );
 	}
 
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
 	if( S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EISDIR;
 	}
 	
@@ -833,24 +897,24 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 
-	res = psql_truncate( data->conn, id, path, offset );
+	res = psql_truncate( conn, id, path, offset );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
 	meta.size = offset;
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -860,8 +924,10 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	int res;
 	PgMeta meta;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
@@ -870,36 +936,36 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	}
 
 	if( fi->fh == 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 	
-	res = psql_get_meta( data->conn, path, &meta );
+	res = psql_get_meta( conn, path, &meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	res = psql_truncate( data->conn, fi->fh, path, offset );
+	res = psql_truncate( conn, fi->fh, path, offset );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
 	meta.size = offset;
 	
-	res = psql_write_meta( data->conn, fi->fh, path, meta );
+	res = psql_write_meta( conn, fi->fh, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -942,8 +1008,10 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 	int id;
 	PgMeta meta;	
 	int res;
+	PGconn *conn;
 
-	PSQL_BEGIN( data->conn );
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Chmod on '%s' to mode '%o' on '%s', thread #%d",
@@ -951,21 +1019,21 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 			fuse_get_context( )->uid );
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
 	meta.mode = mode;
 	
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 
 	return 0;
 }
@@ -976,8 +1044,10 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	int id;
 	PgMeta meta;	
 	int res;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Chown on '%s' to uid '%d' and gid '%d' on '%s', thread #%d",
@@ -985,22 +1055,22 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 			fuse_get_context( )->uid );
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	
 	meta.uid = uid;
 	meta.gid = gid;
 	
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return res;
 }
@@ -1015,8 +1085,10 @@ static int pgfuse_symlink( const char *from, const char *to )
 	int res;
 	int id;
 	PgMeta meta;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Symlink from '%s' to '%s' on '%s', thread #%d",
@@ -1024,26 +1096,26 @@ static int pgfuse_symlink( const char *from, const char *to )
 	}
 
 	if( data->read_only ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EROFS;
 	}
 	
 	copy_to = strdup( to );
 	if( copy_to == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
 	parent_path = dirname( copy_to );
 
-	parent_id = psql_get_meta( data->conn, parent_path, &meta );
+	parent_id = psql_get_meta( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
 	}
 	if( !S_ISDIR( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOENT;
 	}
 	
@@ -1057,7 +1129,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 	if( copy_to == NULL ) {
 		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
@@ -1072,35 +1144,35 @@ static int pgfuse_symlink( const char *from, const char *to )
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
 	
-	res = psql_create_file( data->conn, parent_id, to, symlink, meta );
+	res = psql_create_file( conn, parent_id, to, symlink, meta );
 	if( res < 0 ) {
 		free( copy_to );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	id = psql_get_meta( data->conn, to, &meta );
+	id = psql_get_meta( conn, to, &meta );
 	if( id < 0 ) {
 		free( copy_to );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 
-	res = psql_write_buf( data->conn, id, to, from, 0, strlen( from ), data->verbose );
+	res = psql_write_buf( conn, id, to, from, 0, strlen( from ), data->verbose );
 	if( res < 0 ) {
 		free( copy_to );
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
 	if( res != strlen( from ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EIO;
 	}
 
 	free( copy_to );
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -1111,38 +1183,40 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 	int id;
 	PgMeta meta;
 	int res;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Dereferencing symlink '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 	if( !S_ISLNK( meta.mode ) ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOENT;
 	}
 	
 	if( size < meta.size + 1 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
 	
-	res = psql_read_buf( data->conn, id, path, buf, 0, meta.size, data->verbose );
+	res = psql_read_buf( conn, id, path, buf, 0, meta.size, data->verbose );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
 	buf[meta.size] = '\0';
 
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -1153,8 +1227,10 @@ static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 	int id;
 	PgMeta meta;	
 	int res;
-	
-	PSQL_BEGIN( data->conn );
+	PGconn *conn;
+
+	ACQUIRE( conn );
+	PSQL_BEGIN( conn );
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Utimens on '%s' to access time '%d' and modification time '%d' on '%s', thread #%d",
@@ -1162,22 +1238,22 @@ static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 			fuse_get_context( )->uid );
 	}
 	
-	id = psql_get_meta( data->conn, path, &meta );
+	id = psql_get_meta( conn, path, &meta );
 	if( id < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
 		
 	meta.atime = tv[0];
 	meta.mtime = tv[1];
 	
-	res = psql_write_meta( data->conn, id, path, meta );
+	res = psql_write_meta( conn, id, path, meta );
 	if( res < 0 ) {
-		PSQL_ROLLBACK( data->conn );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
 	}
 	
-	PSQL_COMMIT( data->conn );
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }
@@ -1364,13 +1440,7 @@ int main( int argc, char *argv[] )
 		fprintf( stderr, "See '%s -h' for usage\n", basename( argv[0] ) );
 		exit( EXIT_FAILURE );
 	}
-	
-	if( pgfuse.multi_threaded ) {
-		fprintf( stderr, "Currently not supporting multi-threaded mode, specify '-s'!\n" );
-		fprintf( stderr, "See '%s -h' for usage\n", basename( argv[0] ) );
-		exit( EXIT_FAILURE );
-	}
-	
+		
 	/* just test if the connection can be established, do the
 	 * real connection in the fuse init function!
 	 */
