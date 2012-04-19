@@ -223,10 +223,12 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 
 int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, const off_t offset, const size_t len, int verbose )
 {
-	PgDataInfo info = compute_block_info( offset, len );
-	int param1 = htonl( id );
-	const char *values[3] = { (const char *)&param1, (const char *)&info.from_block, (const char *)&info.to_block };
-	int lengths[3] = { sizeof( param1 ), sizeof( info.from_block ), sizeof( info.to_block ) };
+	PgDataInfo info;
+	int param1;
+	int param2;
+	int param3; 
+	const char *values[3] = { (const char *)&param1, (const char *)&param2, (const char *)&param3 };
+	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), sizeof( param3 ) };
 	int binary[3] = { 1, 1, 1 };
 	PGresult *res;
 	char zero_block[STANDARD_BLOCK_SIZE];
@@ -237,6 +239,25 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	int db_block_no;
 	int idx;
 	char *dst;
+	PgMeta meta;
+	int tmp;
+	int size;
+	
+	tmp = psql_get_meta( conn, path, &meta );
+	if( tmp < 0 ) {
+		return tmp;
+	}
+	
+	size = len;
+	if( offset + size > meta.size ) {
+		size = meta.size - offset;
+	}
+	
+	info = compute_block_info( offset, size );
+	
+	param1 = htonl( id );
+	param2 = htonl( info.from_block );
+	param3 = htonl( info.to_block );
 
 	res = PQexecParams( conn, "SELECT block_no, data FROM data WHERE dir_id=$1::int4 AND block_no>=$2::int4 AND block_no<=$3::int4 ORDER BY block_no ASC",
 		3, NULL, values, lengths, binary, 1 );
@@ -262,16 +283,12 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 				data = zero_block;
 			} else {
 				data = PQgetvalue( res, idx, 1 );
+				idx++;
 			}
 		} else {
 			data = zero_block;
 		}
-		
-		if( verbose ) {
-			syslog( LOG_DEBUG, "File '%s', reading block '%d', copied: '%d', DB block: '%d'",
-				path, block_no, copied, db_block_no );
-		}
-		
+				
 		/* first block */
 		if( block_no == info.from_block ) {
 			
@@ -293,9 +310,10 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 			dst += STANDARD_BLOCK_SIZE;
 			copied += STANDARD_BLOCK_SIZE;
 		}
-		
-		if( block_no == db_block_no ) {
-			idx++;
+
+		if( verbose ) {
+			syslog( LOG_DEBUG, "File '%s', reading block '%d', copied: '%d', DB block: '%d'",
+				path, block_no, copied, db_block_no );
 		}
 	}
 

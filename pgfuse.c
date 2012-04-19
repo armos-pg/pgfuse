@@ -852,11 +852,9 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	}
 
 	res = psql_read_buf( conn, fi->fh, path, buf, offset, size, data->verbose );
-	if( res != size ) {
-		syslog( LOG_ERR, "Possible data corruption in file '%s', expected '%d' bytes, got '%d', on mountpoint '%s'!",
-			path, size, res, data->mountpoint );
+	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -EIO;
+		return res;
 	}
 
 	PSQL_COMMIT( conn ); RELEASE( conn );
