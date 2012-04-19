@@ -41,7 +41,6 @@
 
 typedef struct PgFuseFile {
 	int id;			/* id as in database, also passed in FUSE context */
-	size_t size;		/* used size in the buffer */
 	int ref_count;		/* reference counter (for double opens, dup, etc.) */
 } PgFuseFile;
 
@@ -339,7 +338,6 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	f = &pgfuse_files[id % MAX_NOF_OPEN_FILES];
 	f->id = id;
-	f->size = 0;
 	f->ref_count = 1;
 
 	fi->fh = id;
@@ -395,7 +393,6 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 	
 	f->id = id;
-	f->size = meta.size;
 	f->ref_count = 1;
 	
 	fi->fh = id;
@@ -592,9 +589,6 @@ static int pgfuse_flush( const char *path, struct fuse_file_info *fi )
 static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	PgFuseFile *f;
-	int res;
-	PgMeta meta;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "%s on file '%s' on '%s', thread #%d",
@@ -609,21 +603,6 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 	if( fi->fh == 0 ) {
 		return -EBADF;
 	}
-
-	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
-	
-	if( !isdatasync ) {
-		res = psql_get_meta( data->conn, path, &meta );
-		if( res < 0 ) {
-			return res;
-		}
-		meta.size = f->size;
-		res = psql_write_meta( data->conn, f->id, path, meta );
-	}
-		
-	if( res < 0 ) {
-		return res;
-	}
 	
 	return 0;
 }
@@ -632,9 +611,7 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
-	int res;
-	PgMeta meta;
-	
+		
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%d",
 			path, data->mountpoint, fuse_get_context( )->uid );
@@ -653,24 +630,12 @@ static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 
 	if( data->read_only ) {
 		f->id = 0;
-		f->size = 0;
 		return 0;
 	}
-	
-	res = psql_get_meta( data->conn, path, &meta );
-	if( res < 0 ) {
-		syslog( LOG_CRIT, "Error reading metadata while closing the file '%s' on '%s'! Metadata may be corrupt now!",
-			path, data->mountpoint );
-		memset( &meta, 0, sizeof( meta ) );
-	}
-	
-	meta.size = f->size;
-	res = psql_write_meta( data->conn, f->id, path, meta );
-	
+		
 	f->id = 0;
-	f->size = 0;
 
-	return res;
+	return 0;
 }
 
 static int pgfuse_write( const char *path, const char *buf, size_t size,
@@ -679,6 +644,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
 	int res;
+	PgMeta meta;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%d",
@@ -696,15 +662,28 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 	
-	if( offset + size > f->size ) {
-		f->size = offset + size;
+	res = psql_get_meta( data->conn, path, &meta );
+	if( res < 0 ) {
+		return res;
+	}
+	
+	if( offset + size > meta.size ) {
+		meta.size = offset + size;
 	}
 	
 	res = psql_write_buf( data->conn, f->id, path, buf, offset, size, data->verbose );
+	if( res < 0 ) {
+		return res;
+	}
 	if( res != size ) {
 		syslog( LOG_ERR, "Write size mismatch in file '%s' on mountpoint '%s', expected '%d' to be written, but actually wrote '%d' bytes! Data inconistency!",
 			path, data->mountpoint, size, res );
 		return -EIO;
+	}
+	
+	res = psql_write_meta( data->conn, f->id, path, meta );
+	if( res < 0 ) {
+		return res;
 	}
 	
 	return size;
@@ -778,8 +757,12 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	}
 
 	res = psql_truncate( data->conn, f->id, path, offset );
+	if( res < 0 ) {
+		return res;
+	}
 	
-	f->size = offset;
+	meta.size = offset;
+	res = psql_write_meta( data->conn, f->id, path, meta );
 	
 	return res;
 }
@@ -789,6 +772,7 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgFuseFile *f;
 	int res;
+	PgMeta meta;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%d",
@@ -806,9 +790,19 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	
 	f = &pgfuse_files[fi->fh % MAX_NOF_OPEN_FILES];
 
-	res = psql_truncate( data->conn, f->id, path, offset );
+	res = psql_get_meta( data->conn, path, &meta );
+	if( res < 0 ) {
+		return res;
+	}
 	
-	f->size = offset;
+	res = psql_truncate( data->conn, f->id, path, offset );
+	if( res < 0 ) {
+		return res;
+	}
+	
+	meta.size = offset;
+	
+	res = psql_write_meta( data->conn, f->id, path, meta );
 	
 	return res;
 }

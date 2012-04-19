@@ -65,6 +65,10 @@ COPY FROM and COPY to as a fast, non-transactional mode?
 Pad blocks in data or not? Or all but the last one, allowing very
 small files to be stored efficiently.
 
+How to tune the block sizes? What factors influence the experiment?
+At the moment we store padded blocks of fixes size (STANDARD_BLOCK_SIZE),
+not really sure if that is good or bad.
+
 Directory tree in database
 --------------------------
 
