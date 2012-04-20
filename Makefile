@@ -123,6 +123,10 @@ install: all
 	cp pgfuse "$(bindir)"
 	test -d "$(datadir)/man/man1" || mkdir -p "$(datadir)/man/man1"
 	cp pgfuse.1 "$(datadir)/man/man1"
+	gzip "$(datadir)/man/man1/pgfuse.1"
+	test -d "$(datadir)/$(PACKAGE_NAME)-$(PACKAGE_VERSION)" || \
+		mkdir -p "$(datadir)/$(PACKAGE_NAME)-$(PACKAGE_VERSION)"
+	cp schema.sql "$(datadir)/$(PACKAGE_NAME)-$(PACKAGE_VERSION)"
 	
 dist:
 	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)

@@ -67,6 +67,11 @@ of \fBmount\fR and the README file of the \fBfuse\fR source package.
 .SH DESCRIPTION
 PgFuse is a FUSE filesystem which stores inodes and data into a
 PostgreSQL database.
+.SH INSTALLATION
+Before using PgFuse you must create a database user and a database
+where to store the files to. Populate the initial schema with:
+.TP
+\fBpsql < /usr/share/pgfuse-xxxx/schema.sql\fR
 .SH BUGS
 .TP
 - no hard-links
