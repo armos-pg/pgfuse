@@ -259,7 +259,7 @@ static int pgfuse_access( const char *path, int mode )
 static char *flags_to_string( int flags )
 {
 	char *s;
-	char *mode_s;
+	char *mode_s = "";
 	
 	if( ( flags & O_ACCMODE ) == O_WRONLY ) mode_s = "O_WRONLY";
 	else if( ( flags & O_ACCMODE ) == O_RDWR ) mode_s = "O_RDWR";
