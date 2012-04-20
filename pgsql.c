@@ -482,8 +482,8 @@ update_again:
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %lu for %lu ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
-			len + 1, STANDARD_BLOCK_SIZE - len );
+		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+			len + 1, STANDARD_BLOCK_SIZE - (unsigned int)len );
 
 	/* keep data on the left */
 	} else if( offset > 0 && offset + len == STANDARD_BLOCK_SIZE ) {
@@ -494,9 +494,9 @@ update_again:
 	/* small in the middle write, keep data on both sides */
 	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %lu for %lu ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
 			1, (unsigned int)offset,
-			(unsigned int)offset + len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + len ) );
+			(unsigned int)offset + len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + (unsigned int)len ) );
 						
 	/* we should never get here */
 	} else {
