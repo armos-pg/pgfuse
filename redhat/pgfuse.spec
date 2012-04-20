@@ -95,6 +95,9 @@ BuildRequires: pkgconfig
 BuildRequires: gcc
 BuildRequires: postgresql-devel >= 7.0
 Requires: postgresql-libs >= 7.0
+BuildRequires: fuse-devel >= 2.6
+Requires: fuse-libs >= 2.6
+Requires: fuse >= 2.6
 
 # Check if 'Distribution' is really set by OBS (as mentioned in bacula)
 %if ! 0%{?opensuse_bs}

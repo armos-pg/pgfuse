@@ -1,7 +1,17 @@
 all: pgfuse
 
+# name and version of package
 PACKAGE_NAME = pgfuse
 PACKAGE_VERSION = 0.0.1
+
+# installation dirs
+DESTDIR=
+prefix=/usr
+
+# standard directories following FHS
+execdir=$(DESTDIR)$(prefix)
+bindir=$(execdir)/bin
+datadir=$(execdir)/share
 
 # for debugging
 CFLAGS = -Wall -Werror -g -O0 -pthread
@@ -108,6 +118,12 @@ testpgsql: testpgsql.o
 testpgsql.o: testpgsql.c
 	$(CC) -c $(CFLAGS) -o testpgsql.o testpgsql.c
 
+install: all
+	test -d "$(bindir)" || mkdir -p "$(bindir)"
+	cp pgfuse "$(bindir)"
+	test -d "$(datadir)/man/man1" || mkdir -p "$(datadir)/man/man1"
+	cp pgfuse.1 "$(datadir)/man/man1"
+	
 dist:
 	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
 	mkdir /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
@@ -123,4 +139,3 @@ dist:
 dist-gz: dist
 	rm -f $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar.gz
 	gzip $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar
-	
