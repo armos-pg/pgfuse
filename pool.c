@@ -166,7 +166,7 @@ int psql_pool_release( PgConnPool *pool, PGconn *conn )
 	res = pthread_mutex_lock( &pool->lock );
 	if( res < 0 ) return res;
 	
-	for( i = 1; i < pool->size; i++ ) {
+	for( i = pool->size; i >= 0; i-- ) {
 		if( pool->conns[i] == conn ) {
 			break;
 		}

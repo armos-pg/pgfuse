@@ -8,6 +8,7 @@ Internal documentation for developers
       Transaction Policies
       Self-containment
    Testing
+   References
 
 Coding guidelines
 -----------------
@@ -96,7 +97,7 @@ specify transaction strategy as mount options?
 Self-containment
 ----------------
 
-React decently to loose of database connections. Try to reestablish
+React decently to loss of database connections. Try to reestablish
 the connection, the loss of database connection could be temporary.
 
 What should be reported back as temporary error state to FUSE?
@@ -118,3 +119,11 @@ while(true);do
 	mkdir mnt/bla
 	rmdir mnt/bla
 done
+
+References
+----------
+
+Good FUSE tutorials at:
+
+http://www.cs.hmc.edu/~geoff/classes/hmc.cs135.201109/homework/fuse/fuse_doc.html
+http://www.cs.nmsu.edu/~pfeiffer/fuse-tutorial/

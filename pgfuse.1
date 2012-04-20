@@ -1,4 +1,4 @@
-.TH PgFuse "1" "04/18/2012" "PGFUSE" "User Commands"
+.TH PgFuse "1" "04/20/2012" "PGFUSE" "User Commands"
 .SH NAME
 PgFuse \- FUSE-based file system with a PostgreSQL storage backend
 .SH SYNOPSIS
@@ -73,15 +73,12 @@ PostgreSQL database.
 .TP
 - no mknod support
 .TP
-- doesn't run multi-threaded currently (always give the -s option!)
-.TP
 - no rename supported
 .TP
 - no support for extended attributes and ACLs
 .TP
-- only auto-commit transactions currently, so parallel access from
-other clients of the same database may see incomplete data
-.TP
 - tested on Linux only currently
+.TP
+- no self-containment properties in respect to the database
 .SH AUTHOR
 PgFuse has been written by Andreas Baumann <abaumann@yahoo.com>
