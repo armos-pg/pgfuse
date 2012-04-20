@@ -127,6 +127,7 @@ rm -rf $RPM_BUILD_ROOT
 %defattr( -, root, root )
 %{_bindir}/pgfuse
 %{_datadir}/man/man1/pgfuse.1.gz
+%dir %{_datadir}/%{name}-%{version}
 %{_datadir}/%{name}-%{version}/schema.sql
 
 %changelog
