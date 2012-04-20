@@ -849,7 +849,7 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 
 	PSQL_COMMIT( conn ); RELEASE( conn );
 		
-	return size;
+	return res;
 }
 
 static int pgfuse_truncate( const char* path, off_t offset )

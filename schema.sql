@@ -14,13 +14,13 @@ CREATE TABLE dir (
 	atime TIMESTAMP
 );
 
--- TODO: 512 is STANDARD_BLOCK_SIZE in config.h, must be in sync!
+-- TODO: 4096 is STANDARD_BLOCK_SIZE in config.h, must be in sync!
 CREATE TABLE data (
 	id SERIAL PRIMARY KEY,
 	dir_id INTEGER,
 	block_no INTEGER NOT NULL DEFAULT 0,
 	FOREIGN KEY( dir_id ) REFERENCES dir( id ),
-	data BYTEA NOT NULL DEFAULT repeat(E'\\000',512)::bytea
+	data BYTEA NOT NULL DEFAULT repeat(E'\\000',4096)::bytea
 );
 
 -- create indexes for fast data access

@@ -109,6 +109,7 @@ int psql_pool_destroy( PgConnPool *pool )
 	}
 	
 	free( pool->conns );
+	free( pool->avail );
 	
 	res1 = pthread_cond_destroy( &pool->cond );
 	res2 = pthread_mutex_destroy( &pool->lock );
@@ -166,7 +167,7 @@ int psql_pool_release( PgConnPool *pool, PGconn *conn )
 	res = pthread_mutex_lock( &pool->lock );
 	if( res < 0 ) return res;
 	
-	for( i = pool->size; i >= 0; i-- ) {
+	for( i = pool->size-1; i >= 0; i-- ) {
 		if( pool->conns[i] == conn ) {
 			break;
 		}

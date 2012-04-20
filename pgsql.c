@@ -72,7 +72,7 @@ static PgDataInfo compute_block_info( off_t offset, size_t len )
 	if( nof_blocks == 0 ) {
 		info.from_len = len;
 	} else {
-		info.from_len = STANDARD_BLOCK_SIZE;
+		info.from_len = STANDARD_BLOCK_SIZE - info.from_offset;
 	}
 	
 	info.to_block = info.from_block + nof_blocks;
@@ -286,7 +286,7 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 		/* first block */
 		if( block_no == info.from_block ) {
 			
-			memcpy( dst, data + info.from_offset, info.from_len );
+			memcpy( dst, data + info.from_offset, info.from_len - info.from_offset );
 			
 			dst += info.from_len;
 			copied += info.from_len;
@@ -312,6 +312,12 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	}
 
 	PQclear( res );
+	
+	if( copied != size ) {
+		syslog( LOG_ERR, "File '%s', reading block '%d', copied '%d' bytes but expecting '%d'!",
+			path, block_no, copied, size );
+		return -EIO;
+	}
 	
 	return copied;
 }
@@ -461,8 +467,8 @@ static int psql_write_block( PGconn *conn, const int id, const char *path, const
 	
 	/* could actually be an assertion, as this can never happen */
 	if( offset + len > STANDARD_BLOCK_SIZE ) {
-		syslog( LOG_ERR, "Got a too big block write for file '%s': %u + %u > %d!",
-			path, (unsigned int)offset, (unsigned int)len, STANDARD_BLOCK_SIZE );
+		syslog( LOG_ERR, "Got a too big block write for file '%s', block '%d': %u + %u > %d!",
+			path, block_no, (unsigned int)offset, (unsigned int)len, STANDARD_BLOCK_SIZE );
 		return -EIO;
 	}
 

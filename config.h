@@ -24,7 +24,7 @@
 
 /* standard block size, that's the split size for the byta column in data */
 
-#define STANDARD_BLOCK_SIZE	512
+#define STANDARD_BLOCK_SIZE	4096
 
 /* maximum length of a filename , rather arbitrary choice */
 
