@@ -307,7 +307,7 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 
 		if( verbose ) {
 			syslog( LOG_DEBUG, "File '%s', reading block '%d', copied: '%d', DB block: '%d'",
-				path, block_no, copied, db_block_no );
+				path, block_no, (unsigned int)copied, db_block_no );
 		}
 	}
 
@@ -315,7 +315,7 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	
 	if( copied != size ) {
 		syslog( LOG_ERR, "File '%s', reading block '%d', copied '%d' bytes but expecting '%d'!",
-			path, block_no, copied, size );
+			path, block_no, (unsigned int)copied, size );
 		return -EIO;
 	}
 	
@@ -482,7 +482,7 @@ update_again:
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %d for %d ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %lu for %lu ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
 			len + 1, STANDARD_BLOCK_SIZE - len );
 
 	/* keep data on the left */
@@ -494,7 +494,7 @@ update_again:
 	/* small in the middle write, keep data on both sides */
 	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %d for %d ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %lu for %lu ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
 			1, (unsigned int)offset,
 			(unsigned int)offset + len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + len ) );
 						
@@ -507,7 +507,7 @@ update_again:
 	
 	if( verbose ) {
 		syslog( LOG_DEBUG, "%s, block: %d, offset: %d, len: %d => %s\n",
-			path, block_no, (unsigned int)offset, len, sql );
+			path, block_no, (unsigned int)offset, (unsigned int)len, sql );
 	}
 	
 	res = PQexecParams( conn, sql, 3, NULL, values, lengths, binary, 1 );
@@ -577,7 +577,7 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 	}
 	if( res != info.from_len ) {
 		syslog( LOG_ERR, "Partial write in file '%s' in first block '%d' (%u instead of %u octets)",
-			path, info.from_block, res, info.from_len );
+			path, info.from_block, res, (unsigned int)info.from_len );
 		return -EIO;
 	}
 	
@@ -609,7 +609,7 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 	}
 	if( res != info.to_len ) {
 		syslog( LOG_ERR, "Partial write in file '%s' in last block '%d' (%u instead of %u octets)",
-			path, block_no, res, info.to_len );
+			path, block_no, res, (unsigned int)info.to_len );
 		return -EIO;
 	}
 	

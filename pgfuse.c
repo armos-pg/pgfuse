@@ -804,7 +804,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	}
 	if( res != size ) {
 		syslog( LOG_ERR, "Write size mismatch in file '%s' on mountpoint '%s', expected '%d' to be written, but actually wrote '%d' bytes! Data inconistency!",
-			path, data->mountpoint, size, res );
+			path, data->mountpoint, (unsigned int)size, res );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EIO;
 	}
