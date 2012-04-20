@@ -28,7 +28,6 @@
 int psql_pool_init( PgConnPool *pool, const char *conninfo, const size_t max_connections )
 {
 	size_t i;
-	pthread_mutexattr_t attr;
 	int res;
 	
 	pool->conns = (PGconn **)malloc( sizeof( PGconn * ) * max_connections );
@@ -44,25 +43,7 @@ int psql_pool_init( PgConnPool *pool, const char *conninfo, const size_t max_con
 	
 	pool->size = max_connections;
 
-	res = pthread_mutexattr_init( &attr );
-	if( res < 0 ) {		
-		free( pool->avail );
-		free( pool->conns );
-		return res;
-	}
-	res = pthread_mutexattr_settype( &attr, PTHREAD_MUTEX_ERRORCHECK );
-	if( res < 0 ) {
-		free( pool->avail );
-		free( pool->conns );
-		return res;
-	}
-	res = pthread_mutex_init( &pool->lock, &attr );
-	if( res < 0 ) {
-		free( pool->avail );
-		free( pool->conns );
-		return res;
-	}
-	res = pthread_mutexattr_destroy( &attr );
+	res = pthread_mutex_init( &pool->lock, NULL );
 	if( res < 0 ) {
 		free( pool->avail );
 		free( pool->conns );
