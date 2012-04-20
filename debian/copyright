@@ -1,0 +1,24 @@
+This work was packaged for Debian by:
+
+    Andreas Baumann <abaumann@yahoo.com> on Fri, 20 Apr 2012 17:48:00 +0200
+
+It was downloaded from https://github.com/andreasbaumann/pgfuse
+
+Upstream Author(s):
+
+    Andreas Baumann <abaumann@yahoo.com>
+
+Copyright:
+
+    <Copyright (C) 2012 Andreas Baumann>
+
+License:
+
+    GPLv3
+
+The Debian packaging is:
+
+    Copyright (C) 2012 Andreas Baumann <abaumann@yahoo.com>
+
+    and is licensed under the GPL version 3, 
+    see `/usr/share/common-licenses/GPL-3'.

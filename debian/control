@@ -1,0 +1,15 @@
+Source: pgfuse
+Section: unknown
+Priority: extra
+Maintainer: Andreas Baumann <abaumann@yahoo.com>
+Build-Depends: debhelper (>= 4.1.16),
+ libpq-dev, libfuse-dev
+Standards-Version: 3.8.3
+Homepage: https://github.com/andreasbaumann/pgfuse
+
+Package: pgfuse
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: PgFuse
+ PgFuse  is a FUSE filesystem which stores inodes and data into a 
+ PostgreSQL database.
