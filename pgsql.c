@@ -459,7 +459,7 @@ static int psql_write_block( PGconn *conn, const int id, const char *path, const
 {
 	int param1 = htonl( id );
 	int param2 = htonl( block_no );
-	const char *values[3] = { (const char *)&param1, (const char *)&param2, buf + offset };
+	const char *values[3] = { (const char *)&param1, (const char *)&param2, buf };
 	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), len };
 	int binary[3] = { 1, 1, 1 };
 	PGresult *res;
@@ -479,25 +479,25 @@ update_again:
 		
 		strcpy( sql, "UPDATE data set data = $3::bytea WHERE dir_id=$1::int4 AND block_no=$2::int4" );
 		
-	/* small in the middle write, keep data on both sides */
-	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
-
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %d for %d ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
-			0, (unsigned int)offset,
-			(unsigned int)offset + len, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + len ) );
-	
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
 		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %d for %d ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
-			len, STANDARD_BLOCK_SIZE - len );
+			len + 1, STANDARD_BLOCK_SIZE - len );
 
 	/* keep data on the left */
 	} else if( offset > 0 && offset + len == STANDARD_BLOCK_SIZE ) {
 		
 		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::int4 AND block_no=$2::int4",
-			0, (unsigned int)offset );
-					
+			1, (unsigned int)offset );
+
+	/* small in the middle write, keep data on both sides */
+	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
+
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %d for %d ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+			1, (unsigned int)offset,
+			(unsigned int)offset + len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + len ) );
+						
 	/* we should never get here */
 	} else {
 		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%d': offset: %u, len: %u, blocksize: %u",
