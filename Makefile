@@ -1,5 +1,8 @@
 all: pgfuse
 
+PACKAGE_NAME = pgfuse
+PACKAGE_VERSION = 0.0.1
+
 # for debugging
 CFLAGS = -Wall -Werror -g -O0 -pthread
 # for releasing
@@ -105,3 +108,19 @@ testpgsql: testpgsql.o
 testpgsql.o: testpgsql.c
 	$(CC) -c $(CFLAGS) -o testpgsql.o testpgsql.c
 
+dist:
+	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	mkdir /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	cp -r * /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)/.
+	cd /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION); \
+		$(MAKE) clean; \
+		cd .. ; \
+		tar cvf $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar \
+			$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	mv /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION).tar .
+
+dist-gz: dist
+	rm -f $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar.gz
+	gzip $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar
+	
