@@ -106,8 +106,8 @@ Requires: postgresql-libs >= 8.4
 %endif
 
 %if %{sles}
-BuildRequires: postgresql84-devel
-Requires: postgresql84-libs
+BuildRequires: postgresql-devel >= 8.4
+Requires: postgresql-libs >= 8.4
 %endif
 
 BuildRequires: fuse-devel >= 2.6
