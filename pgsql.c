@@ -230,7 +230,7 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	char *iptr;
 	char *data;
 	size_t copied;
-	int db_block_no;
+	int db_block_no = 0;
 	int idx;
 	char *dst;
 	PgMeta meta;
