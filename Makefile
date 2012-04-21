@@ -46,7 +46,6 @@ clean:
 	rm -f pgfuse pgfuse.o pgsql.o pool.o
 	rm -f testfsync testfsync.o
 	rm -f testpgsql testpgsql.o
-	psql < clean.sql
 
 test: pgfuse testfsync testpgsql
 	psql < clean.sql
