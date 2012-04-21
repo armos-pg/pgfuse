@@ -29,7 +29,8 @@ int main( void )
 	
 	memset( buf, 0, 4096 );
 	
-	fd = open( "./mnt/testfsync.data", O_WRONLY | O_CREAT );
+	fd = open( "./mnt/testfsync.data", O_WRONLY | O_CREAT,
+	    S_IRUSR | S_IWUSR );
 	if( fd < 0 ) {
 		perror( "Unable to open testfile" );
 		return 1;
