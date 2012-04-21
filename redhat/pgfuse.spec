@@ -20,11 +20,13 @@
 %if 0%{?centos_version} >= 500 && 0%{?centos_version} <= 599
 %define dist centos5
 %define centos 1
+%define rhel5 1
 %endif
 
 %if 0%{?centos_version} >= 600 && 0%{?centos_version} <= 699
 %define dist centos6
 %define centos 1
+%define rhel6 1
 %endif
 
 %define fedora 0
@@ -88,12 +90,24 @@ BuildRequires: pkg-config
 
 BuildRequires: gcc
 
+%if %{rhel} || %{centos} || %{fedora}
 %if %{rhel5}
 BuildRequires: postgresql84-devel
-Requires: postgresql84-server
+Requires: postgresql84-libs
 %else
 BuildRequires: postgresql-devel >= 8.4
 Requires: postgresql-libs >= 8.4
+%endif
+%endif
+
+%if %{suse}
+BuildRequires: postgresql-devel >= 8.4
+Requires: postgresql-libs >= 8.4
+%endif
+
+%if %{sles}
+BuildRequires: postgresql84-devel
+Requires: postgresql84-libs
 %endif
 
 BuildRequires: fuse-devel >= 2.6
