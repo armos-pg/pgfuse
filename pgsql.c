@@ -24,7 +24,26 @@
 #include <errno.h>		/* for ENOENT and friends */
 #include <arpa/inet.h>		/* for htonl, ntohl */
 #include <stdint.h>		/* for uint64_t */
-#include <endian.h>		/* for be64toh (GNU/BSD-ism, but easy to port if necessary) */
+
+/* for be64toh and htobe64 */
+#if defined(__linux__)
+#include <endian.h>
+#ifndef be64toh
+#include <byteswap.h>
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define htobe64( x ) bswap_64 ( x )
+#define be64toh( x ) bswap_64( x )
+#else
+#define htobe64( x ) ( x )
+#define be64toh( x ) ( x )
+#endif
+#endif
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+#include <sys/endian.h>
+#elif defined(__OpenBSD__)
+#include <sys/types.h>
+#define be64toh( x ) betoh64(x)
+#endif
 
 #include "config.h"		/* compiled in defaults */
 
