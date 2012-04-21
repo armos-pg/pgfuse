@@ -136,17 +136,17 @@ install: all
 	cp schema.sql "$(datadir)/$(PACKAGE_NAME)-$(PACKAGE_VERSION)"
 	
 dist:
-	rm -rf /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION)
-	mkdir /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION)
-	cp -r * /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION)/.
-	cd /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION); \
+	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	mkdir /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	cp -r * /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)/.
+	cd /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION); \
 		$(MAKE) clean; \
 		cd .. ; \
-		tar cvf $(PACKAGE_NAME)_$(PACKAGE_VERSION).tar \
-			$(PACKAGE_NAME)_$(PACKAGE_VERSION)
-	rm -rf /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION)
-	mv /tmp/$(PACKAGE_NAME)_$(PACKAGE_VERSION).tar .
+		tar cvf $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar \
+			$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	rm -rf /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+	mv /tmp/$(PACKAGE_NAME)-$(PACKAGE_VERSION).tar .
 
 dist-gz: dist
-	rm -f $(PACKAGE_NAME)_$(PACKAGE_VERSION).tar.gz
-	gzip $(PACKAGE_NAME)_$(PACKAGE_VERSION).tar
+	rm -f $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar.gz
+	gzip $(PACKAGE_NAME)-$(PACKAGE_VERSION).tar
