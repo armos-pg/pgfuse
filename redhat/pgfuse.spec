@@ -88,8 +88,8 @@ BuildRoot: %{_tmppath}/%{name}-root
 %if %{rhel} || %{centos} || %{fedora}
 BuildRequires: pkgconfig
 %endif
-%if %{suse}
-BuildRequires: pkgconfig
+%if %{suse} || %{sles}
+BuildRequires: pkg-config
 %endif
 
 BuildRequires: gcc
