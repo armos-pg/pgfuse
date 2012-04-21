@@ -21,8 +21,9 @@
 #include <string.h>		/* for strcmp */
 #include <stdbool.h>		/* for bool */
 #include <stdint.h>		/* for uint64_t */
-#include <endian.h>		/* for be64toh (GNU/BSD-ism, but easy to port if necessary) */
 #include <sys/time.h>		/* for struct timespec, gettimeofday */
+
+#include "endian.h"		/* for be64toh */
 
 /* January 1, 2000, 00:00:00 UTC (in Unix epoch seconds) */
 #define POSTGRES_EPOCH_DATE 946684800

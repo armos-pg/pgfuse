@@ -3,14 +3,8 @@
 # Copyright (C) 2012 
 
 %define rhel 0
-%define rhel4 0
 %define rhel5 0
 %define rhel6 0
-%if 0%{?rhel_version} >= 400 && 0%{?rhel_version} <= 499
-%define dist rhel4
-%define rhel 1
-%define rhel4 1
-%endif
 %if 0%{?rhel_version} >= 500 && 0%{?rhel_version} <= 599
 %define dist rhel5
 %define rhel 1
@@ -93,8 +87,15 @@ BuildRequires: pkg-config
 %endif
 
 BuildRequires: gcc
-BuildRequires: postgresql-devel >= 7.0
-Requires: postgresql-libs >= 7.0
+
+%if %{rhel5}
+BuildRequires: postgresql84-devel
+Requires: postgresql84-server
+%else
+BuildRequires: postgresql-devel >= 8.4
+Requires: postgresql-libs >= 8.4
+%endif
+
 BuildRequires: fuse-devel >= 2.6
 Requires: fuse-libs >= 2.6
 Requires: fuse >= 2.6

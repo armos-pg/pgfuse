@@ -32,7 +32,7 @@
 
 #include <pthread.h>		/* for pthread_self */
 
-#if FUSE_VERSION < 28
+#if FUSE_VERSION < 21
 #error Currently only written for newest FUSE  APIversion (FUSE_VERSION 28)
 #endif
 
@@ -1284,8 +1284,10 @@ static struct fuse_operations pgfuse_oper = {
 	.lock		= NULL,
 	.utimens	= pgfuse_utimens,
 	.bmap		= NULL,
+#if FUSE_VERSION >= 28
 	.ioctl		= NULL,
 	.poll		= NULL
+#endif
 };
 
 /* --- parse arguments --- */
