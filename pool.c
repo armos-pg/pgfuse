@@ -155,6 +155,7 @@ int psql_pool_release( PgConnPool *pool, PGconn *conn )
 	}
 	
 	if( i < 0 ) {
+		(void)pthread_mutex_unlock( &pool->lock );
 		return -EINVAL;
 	}
 
