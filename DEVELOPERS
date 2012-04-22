@@ -51,7 +51,8 @@ Multiple ByteA of equal size
 
 Blobs
 
-  They are streamable, but we lack some security (verify?) and we
+  They are streamable, but we lack some security (this was the
+  case before PostgreSQL 9.0, they were publibly readable) and we
   lack referential integrity.
   
   The functions to manipulate the blobs are not so nice.
