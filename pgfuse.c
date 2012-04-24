@@ -165,7 +165,7 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -211,7 +211,7 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -305,7 +305,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return -EROFS;
 	}
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 && id != -ENOENT ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -335,7 +335,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_meta( conn, parent_path, &meta );
+	parent_id = psql_read_meta_from_path( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
@@ -377,7 +377,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 		return res;
 	}
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		free( copy_path );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -417,7 +417,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -479,7 +479,7 @@ static int pgfuse_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
 	filler( buf, ".", NULL, 0 );
 	filler( buf, "..", NULL, 0 );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -542,7 +542,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	
 	parent_path = dirname( copy_path );
 
-	parent_id = psql_get_meta( conn, parent_path, &meta );
+	parent_id = psql_read_meta_from_path( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
@@ -607,7 +607,7 @@ static int pgfuse_rmdir( const char *path )
 	ACQUIRE( conn );	
 	PSQL_BEGIN( conn );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -654,7 +654,7 @@ static int pgfuse_unlink( const char *path )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -758,7 +758,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		return -EBADF;
 	}
 		
-	res = psql_get_meta( conn, path, &meta );
+	res = psql_read_meta( conn, fi->fh, path, &meta );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -839,7 +839,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -904,7 +904,7 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 		return -EROFS;
 	}
 	
-	res = psql_get_meta( conn, path, &meta );
+	res = psql_read_meta( conn, fi->fh, path, &meta );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -978,7 +978,7 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -1014,7 +1014,7 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	ACQUIRE( conn );	
 	PSQL_BEGIN( conn );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -1068,7 +1068,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 	
 	parent_path = dirname( copy_to );
 
-	parent_id = psql_get_meta( conn, parent_path, &meta );
+	parent_id = psql_read_meta_from_path( conn, parent_path, &meta );
 	if( parent_id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return parent_id;
@@ -1110,7 +1110,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 		return res;
 	}
 	
-	id = psql_get_meta( conn, to, &meta );
+	id = psql_read_meta_from_path( conn, to, &meta );
 	if( id < 0 ) {
 		free( copy_to );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -1152,7 +1152,7 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 	ACQUIRE( conn );	
 	PSQL_BEGIN( conn );
 
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -1197,7 +1197,7 @@ static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 	
-	id = psql_get_meta( conn, path, &meta );
+	id = psql_read_meta_from_path( conn, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;

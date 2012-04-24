@@ -87,7 +87,7 @@ static PgDataInfo compute_block_info( off_t offset, size_t len )
 	return info;
 }
 
-static int path_to_id( PGconn *conn, const char *path )
+int psql_path_to_id( PGconn *conn, const char *path )
 {
 	PGresult *res;
 	int idx;
@@ -155,21 +155,15 @@ static int path_to_id( PGconn *conn, const char *path )
 
 /* --- postgresql implementation --- */
 
-int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
+int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 {
 	PGresult *res;
 	int idx;
 	char *data;
-	int id;
-	int param1;
+	int param1 = htonl( id );
 	const char *values[1] = { (const char *)&param1 };
 	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
-	
-	id = path_to_id( conn, path );
-	if( id < 0 ) {
-		return id;
-	}
 	
 	param1 = htonl( id );
 	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime FROM dir WHERE id = $1::int4",
@@ -223,6 +217,17 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	PQclear( res );
 	
 	return id;
+}
+
+int psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta )
+{
+	int id = psql_path_to_id( conn, path );
+	
+	if( id < 0 ) {
+		return id;
+	}
+	
+	return psql_read_meta( conn, id, path, meta );
 }
 
 int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
@@ -310,14 +315,8 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	int idx;
 	char *dst;
 	PgMeta meta;
-	int tmp;
 	int size;
-	
-	tmp = psql_get_meta( conn, path, &meta );
-	if( tmp < 0 ) {
-		return tmp;
-	}
-	
+		
 	if( meta.size == 0 ) {
 		return 0;
 	}
@@ -715,7 +714,7 @@ int psql_truncate( PGconn *conn, const int id, const char *path, const off_t off
 	int binary[2] = { 1, 1 };
 	PGresult *dbres;
 	
-	res = psql_get_meta( conn, path, &meta );
+	res = psql_read_meta( conn, id, path, &meta );
 	if( res < 0 ) {
 		return res;
 	}
