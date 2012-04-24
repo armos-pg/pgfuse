@@ -318,6 +318,10 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 		return tmp;
 	}
 	
+	if( meta.size == 0 ) {
+		return 0;
+	}
+	
 	size = len;
 	if( offset + size > meta.size ) {
 		size = meta.size - offset;
