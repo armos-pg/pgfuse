@@ -1,26 +1,26 @@
 CREATE TABLE dir (
-	id SERIAL PRIMARY KEY,
-	parent_id INTEGER REFERENCES dir( id ),
+	id SERIAL,
+	parent_id INTEGER,
 	name TEXT,
-	path TEXT,
-	UNIQUE( name, parent_id ),
-	UNIQUE( path ),
 	size INTEGER DEFAULT 0,
 	mode INTEGER NOT NULL DEFAULT 0,
 	uid INTEGER NOT NULL DEFAULT 0,
 	gid INTEGER NOT NULL DEFAULT 0,
 	ctime TIMESTAMP,
 	mtime TIMESTAMP,
-	atime TIMESTAMP
+	atime TIMESTAMP,
+	PRIMARY KEY( id ),
+	FOREIGN KEY( parent_id ) REFERENCES dir( id ),
+	UNIQUE( name, parent_id )
 );
 
 -- TODO: 4096 is STANDARD_BLOCK_SIZE in config.h, must be in sync!
 CREATE TABLE data (
-	id SERIAL PRIMARY KEY,
 	dir_id INTEGER,
 	block_no INTEGER NOT NULL DEFAULT 0,
-	FOREIGN KEY( dir_id ) REFERENCES dir( id ),
-	data BYTEA NOT NULL DEFAULT repeat(E'\\000',4096)::bytea
+	data BYTEA NOT NULL DEFAULT repeat(E'\\000',4096)::bytea,
+	PRIMARY KEY( dir_id, block_no ),
+	FOREIGN KEY( dir_id ) REFERENCES dir( id )
 );
 
 -- create indexes for fast data access
@@ -48,7 +48,7 @@ CREATE OR REPLACE RULE "dir_remove" AS ON
 	DO ALSO DELETE FROM data WHERE dir_id=OLD.id;	
 	
 -- self-referencing anchor for root directory
--- 16895 = S_IFDIR and 0777 permissions
+-- 16895 = S_IFDIR and 0777 permissions, belonging to root/root
 -- TODO: should be done from outside, see note above
-INSERT INTO dir( id, parent_id, name, path, size, mode, uid, gid, ctime, mtime, atime )
-	VALUES( 0, 0, '/', '/', 0, 16895, 0, 0, NOW( ), NOW( ), NOW( ) );
+INSERT INTO dir( id, parent_id, name, size, mode, uid, gid, ctime, mtime, atime )
+	VALUES( 0, 0, '/', 0, 16895, 0, 0, NOW( ), NOW( ), NOW( ) );

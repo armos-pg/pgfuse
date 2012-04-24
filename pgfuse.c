@@ -720,42 +720,13 @@ static int pgfuse_fsync( const char *path, int isdatasync, struct fuse_file_info
 static int pgfuse_release( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
-	int res;
-	PgMeta meta;
-	PGconn *conn;
 
+	/* nothing to do given the simple transaction model */
+	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Releasing '%s' on '%s', thread #%u",
 			path, data->mountpoint, THREAD_ID );
 	}
-
-	ACQUIRE( conn );		
-	PSQL_BEGIN( conn );
-
-	if( fi->fh == 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -EBADF;
-	}
-
-	if( data->read_only ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return 0;
-	}
-	
-	id = psql_get_meta( conn, path, &meta );
-	if( id < 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return id;
-	}
-		
-	res = psql_write_meta( conn, id, path, meta );
-	if( res < 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return res;
-	}
-
-	PSQL_COMMIT( conn ); RELEASE( conn );
 
 	return 0;
 }

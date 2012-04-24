@@ -17,7 +17,7 @@
 
 #include "pgsql.h"
 
-#include <string.h>		/* for strlen, memcpy, strcmp */
+#include <string.h>		/* for strlen, memcpy, strcmp, strtok_r */
 #include <stdlib.h>		/* for atoi */
 
 #include <syslog.h>		/* for ERR_XXX */
@@ -87,6 +87,72 @@ static PgDataInfo compute_block_info( off_t offset, size_t len )
 	return info;
 }
 
+static int path_to_id( PGconn *conn, const char *path )
+{
+	PGresult *res;
+	int idx;
+	char *data;
+	int id = htonl( 0 );
+	char *name;
+	const char *values[2] = { NULL, (const char *)&id };
+	int lengths[2] = { 0, sizeof( id ) };
+	int binary[2] = { 0, 1 };
+	char *copy_path;
+	char *ptr = NULL;
+	int mode = S_IFDIR;
+	
+	copy_path = strdup( path );
+	if( copy_path == NULL ) {
+		return -ENOMEM;
+	}
+	
+	name = strtok_r( copy_path, "/", &ptr );
+	while( S_ISDIR( mode ) && name != NULL ) {
+	
+		values[0] = name;
+		lengths[0] = strlen( name );
+		
+		res = PQexecParams( conn, "SELECT id, mode FROM dir WHERE name = $1::varchar and parent_id = $2::int4",
+			2, NULL, values, lengths, binary, 1 );
+
+		if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+			syslog( LOG_ERR, "Error in path_to_id for path '%s' in part '%s'", path, name );
+			PQclear( res );
+			free( copy_path );
+			return -EIO;
+		}
+
+		if( PQntuples( res ) == 0 ) {
+			PQclear( res );
+			free( copy_path );
+			return -ENOENT;
+		}
+		
+		if( PQntuples( res ) > 1 ) {
+			syslog( LOG_ERR, "Expecting exactly one inode for path '%s' in psql_get_meta, data inconsistent!", path );
+			PQclear( res );
+			free( copy_path );
+			return -EIO;
+		}
+		
+		idx = PQfnumber( res, "id" );
+		data = PQgetvalue( res, 0, idx );
+		id = *( (uint32_t *)data );
+
+		idx = PQfnumber( res, "mode" );
+		data = PQgetvalue( res, 0, idx );
+		mode = htonl( *( (uint32_t *)data ) );
+
+		PQclear( res );
+		
+		name = strtok_r( NULL, "/", &ptr );
+	}
+	
+	free( copy_path );
+	
+	return ntohl( id );
+}
+
 /* --- postgresql implementation --- */
 
 int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
@@ -95,12 +161,18 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 	int idx;
 	char *data;
 	int id;
-	
-	const char *values[1] = { path };
-	int lengths[1] = { strlen( path ) };
+	int param1;
+	const char *values[1] = { (const char *)&param1 };
+	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
 	
-	res = PQexecParams( conn, "SELECT id, size, mode, uid, gid, ctime, mtime, atime FROM dir WHERE path = $1::varchar",
+	id = path_to_id( conn, path );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	param1 = htonl( id );
+	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime FROM dir WHERE id = $1::int4",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -120,10 +192,6 @@ int psql_get_meta( PGconn *conn, const char *path, PgMeta *meta )
 		return -EIO;
 	}
 	
-	idx = PQfnumber( res, "id" );
-	data = PQgetvalue( res, 0, idx );
-	id = ntohl( *( (uint32_t *)data ) );
-
 	idx = PQfnumber( res, "size" );
 	data = PQgetvalue( res, 0, idx );
 	meta->size = ntohl( *( (uint32_t *)data ) );
@@ -196,17 +264,24 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	uint64_t param6 = convert_to_timestamp( meta.ctime );
 	uint64_t param7 = convert_to_timestamp( meta.mtime );
 	uint64_t param8 = convert_to_timestamp( meta.atime );
-	const char *values[11] = { (const char *)&param1, new_file, path, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8 };
-	int lengths[11] = { sizeof( param1 ), strlen( new_file ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ) };
-	int binary[11] = { 1, 0, 0, 1, 1, 1, 1, 1, 1, 1 };
+	const char *values[9] = { (const char *)&param1, new_file, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7, (const char *)&param8 };
+	int lengths[9] = { sizeof( param1 ), strlen( new_file ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ), sizeof( param8 ) };
+	int binary[9] = { 1, 0, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4, $7::int4, $8::timestamp, $9::timestamp, $10::timestamp )",
-		10, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::int4, $4::int4, $5::int4, $6::int4, $7::timestamp, $8::timestamp, $9::timestamp )",
+		9, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_file for path '%s': %s",
 			path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	if( atoi( PQcmdTuples( res ) ) != 1 ) {
+		syslog( LOG_ERR, "Expecting one new row in psql_create_file, not %d!",
+			atoi( PQcmdTuples( res ) ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -365,16 +440,23 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 	uint64_t param5 = convert_to_timestamp( meta.ctime );
 	uint64_t param6 = convert_to_timestamp( meta.mtime );
 	uint64_t param7 = convert_to_timestamp( meta.atime );
-	const char *values[9] = { (const char *)&param1, new_dir, path, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7 };
-	int lengths[9] = { sizeof( param1 ), strlen( new_dir ), strlen( path ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ) };
-	int binary[9] = { 1, 0, 0, 1, 1, 1, 1, 1, 1 };
+	const char *values[8] = { (const char *)&param1, new_dir, (const char *)&param2, (const char *)&param3, (const char *)&param4, (const char *)&param5, (const char *)&param6, (const char *)&param7 };
+	int lengths[8] = { sizeof( param1 ), strlen( new_dir ), sizeof( param2 ), sizeof( param3 ), sizeof( param4 ), sizeof( param5 ), sizeof( param6 ), sizeof( param7 ) };
+	int binary[8] = { 1, 0, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, path, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::varchar, $4::int4, $5::int4, $6::int4, $7::timestamp, $8::timestamp, $9::timestamp )",
-		9, NULL, values, lengths, binary, 1 );
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::int4, $4::int4, $5::int4, $6::timestamp, $7::timestamp, $8::timestamp )",
+		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
 		syslog( LOG_ERR, "Error in psql_create_dir for path '%s': %s", path, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+
+	if( atoi( PQcmdTuples( res ) ) != 1 ) {
+		syslog( LOG_ERR, "Expecting one new row in psql_create_dir, not %d!",
+			atoi( PQcmdTuples( res ) ) );
 		PQclear( res );
 		return -EIO;
 	}
