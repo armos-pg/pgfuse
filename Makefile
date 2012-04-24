@@ -19,7 +19,7 @@ clean:
 	rm -f pgfuse pgfuse.o pgsql.o pool.o
 	cd tests && $(MAKE) clean
 
-test:
+test: pgfuse
 	cd tests && $(MAKE) test
 	
 pgfuse: pgfuse.o pgsql.o pool.o

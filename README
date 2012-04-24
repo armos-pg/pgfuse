@@ -1,5 +1,11 @@
-Motivation
-----------
+Purpose
+-------
+
+Store files and their metadata completly in a PostgreSQL database.
+Expose a standard file system with the help of the FUSE API.
+
+History
+-------
 
 Yes, I know what happens if you store files in a database (in respect to
 drop of efficiency and incremental backups for instance). :-)
@@ -39,11 +45,6 @@ libsqlfs:
 curlftpfs:
 
   Blueprint for some debugging code.
-
-zip-fs:
-
-  Blueprint for handling files in memory (in my current implementation,
-  this should be changed of course)
 
 References
 ----------
