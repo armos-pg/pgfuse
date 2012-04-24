@@ -16,10 +16,14 @@ Coding guidelines
   8-character TABs.
     
   Standard C89, portable to all platforms supporting FUSE (Linux,
-  FreeBSD, OpenBSD, NetBSD, Darwin/MacOSX). No C++, no C99.
+  FreeBSD, OpenBSD, NetBSD, Darwin/MacOSX). No C++, no C99. Some
+  newer 64-bit things like 'endian.h' are allowed, if there is no
+  other option.
     
   Do not introduce unnecessary 3rd party dependencies in addition
   to the required 'libfuse' and 'libpq'.
+  
+  Use the internal fuse_opts to parse command line options.
     
   Use native 'libpq', not abstractions. The database operations
   are simple enough. If possible avoid string manipulations as
@@ -38,7 +42,7 @@ One ByteA field
 
   All data in a big bytea column: needs memory of the size of the
   complete file on client (pgfuse) and server (PostgreSQL) side,
-  is ok for small files (first proof-of-concept implementation)
+  is ok for small files (first proof-of-concept implementation).
 
 Multiple ByteA of equal size
 
@@ -76,32 +80,36 @@ not really sure if that is good or bad.
 Directory tree in database
 --------------------------
 
-Naive implementation
-  
-  Complete path as string. Has high mutation costs for renames,
-  storage overhead. But is very fast for queries (no joins).
-  
-TODO...
+Every inode has a 'parent_id', self-referencing. To avoid the NULL
+reference there is a root element point to itself. Pathes are decomposed
+programatically by descending the tree. This requires no additional
+redudant storage is easy to change in renames and gives acceptable
+read performance.
 
 Transaction Policies
 --------------------
 
-Fundamental querstion: What file operations should form a database transaction?
+Fundamental question: What file operations should form a database transaction?
   
-one extreme: isolate threads and all file operations in one transaction
-other extreme: "autocommit" (every write, every read, etc.), this allows
-for parallel usage, as long as we have ref_count and an exclusive
-locking, this extreme makes no sense
+one extreme: isolate threads and all file operations in one transaction.
+This is most likely an illution, as we can't assume that FUSE threads
+are assigned fix to a specific file (on the contrary!).
 
-specify transaction strategy as mount options?
+other extreme: "autocommit" (every write, every read, etc.), this allows
+for parallel usage. We trust in FUSE and the locking there. The database
+should help us sequentiallize the operations.
+
+Currently the second option was choosen.
   
 Self-containment
 ----------------
 
 React decently to loss of database connections. Try to reestablish
 the connection, the loss of database connection could be temporary.
+Try to reexecute the file system operation.
 
-What should be reported back as temporary error state to FUSE?
+What should be reported back as permanent error state to FUSE after
+a certain timeout when the database doesn't appear again?
 EIO seems a good option (as if the disk would have temporary I/O
 problems).
 
@@ -114,12 +122,16 @@ commands of the shell).
 bonnie is a good stress and performance tester. Don't despair because
 of poor performance, that's normal. :-)
 
-Several shells in parallel doing:
+Another option is to have many shells open and do some things in
+parallel, like:
 
 while(true);do
 	mkdir mnt/bla
 	rmdir mnt/bla
 done
+
+We should actually write a filesystem operation simulator doing all
+kind of random weird operations with certain probabilities.
 
 References
 ----------
