@@ -4,6 +4,12 @@ Purpose
 Store files and their metadata completly in a PostgreSQL database.
 Expose a standard file system with the help of the FUSE API.
 
+Requirements
+------------
+
+PostgreSQL 8.4 or newer
+FUSE 2.6 or newer
+
 History
 -------
 

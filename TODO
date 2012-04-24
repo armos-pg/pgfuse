@@ -10,6 +10,9 @@ TODO list (in order of priority)
   - extended attributes
 - sort out synchronization issues, how much should we lock?
 - add tests for sparse files and funny read/write operations
+- strategy for half-blocks, help PostgreSQL optimize disk usage
+  of data in BYTEA columns. Try to support tails of growing files
+  and tiny files (without padding to the block size)
 - allow for size_t and off_t (check int4 which should
   be int8, use be64ton and not htonl), flag for 64-bit
   (large filesystem)?
@@ -22,6 +25,10 @@ TODO list (in order of priority)
   lsetxattr("file.sgml", "security.selinux", "system_u:object_r:httpd_sys_content_t:s0", 41, 0) = -1 EOPNOTSUPP (Operation not supported)
   - investigate SELinux races
   - make some performance tests, see http://archive09.linux.com/feature/127055
+- add options to specify:
+  - prefix for tables and indexes
+  - a --init and a --clean option, using schema.sql as template?
+  - support options to specify names of tables, prefixes or/and namespaces?
 - optimizations:
   - use prepared statements, measure performance gain
   - use of asynchonous read/writes
