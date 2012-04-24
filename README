@@ -36,11 +36,11 @@ mysqlfs:
   The blueprint I used and got inspired from. Does exactly the same for
   the MySQL database.
   
-  Also the block splitting algorithm I used more or less from mysqlfs.
+  Also the block splitting algorithm I used more or less from this project.
 
 libsqlfs:
 
-  The same for for storing files in a Sqlite database.
+  The same for storing files in a Sqlite database.
   
 curlftpfs:
 
