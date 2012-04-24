@@ -8,7 +8,6 @@ TODO list (in order of priority)
     here!
   - extended attributes
 - size -> bigint, adapt also code!
-- cat of file with size 0 leads to memory corruption
 - sort out synchronization issues, how much should we lock?
 - add tests for sparse files and funny read/write operations
 - strategy for half-blocks, help PostgreSQL optimize disk usage
