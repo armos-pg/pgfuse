@@ -29,6 +29,9 @@ Coding guidelines
   are simple enough. If possible avoid string manipulations as
   for timestamps (we are on low-level OS-abstraction layer, so
   'struct timespec' and epochs are fine).
+
+  Consistency of the data should be ensured in the database.
+  We don't want to implement an 'fsck' for pgfuse.
           
 Design desicions
 ----------------
@@ -76,6 +79,10 @@ small files to be stored efficiently.
 How to tune the block sizes? What factors influence the experiment?
 At the moment we store padded blocks of fixes size (STANDARD_BLOCK_SIZE),
 not really sure if that is good or bad.
+
+The block size should be computed (small files have only one block,
+all other have a a blocksize of the first full block). Gets us more
+independent on some configuration or options.
 
 Directory tree in database
 --------------------------

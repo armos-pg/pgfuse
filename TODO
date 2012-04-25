@@ -1,7 +1,7 @@
 TODO list (in order of priority)
 ---------
 
-- rename (after a redo of the dir table)
+- rename
 - handling of most file system metadata
   - ownership: how is this done depending on
     per-user or root mounts? think about security
@@ -13,6 +13,8 @@ TODO list (in order of priority)
 - strategy for half-blocks, help PostgreSQL optimize disk usage
   of data in BYTEA columns. Try to support tails of growing files
   and tiny files (without padding to the block size)
+- make block size detectable per file (there is no reason why
+  different files should not have a different block size)
 - allow for size_t and off_t (check int4 which should
   be int8, use be64ton and not htonl), flag for 64-bit
   (large filesystem)?
