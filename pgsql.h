@@ -92,4 +92,6 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 
 int psql_truncate( PGconn *conn, const int id, const char *path, const off_t offset );
 
+int psql_rename( PGconn *conn, const char *from, const char *to );
+
 #endif

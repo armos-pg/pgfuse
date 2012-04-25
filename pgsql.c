@@ -793,3 +793,8 @@ int psql_rollback( PGconn *conn )
 	
 	return 0;
 }
+
+int psql_rename( PGconn *conn, const char *from, const char *to )
+{
+	return 0;
+}

@@ -1136,6 +1136,63 @@ static int pgfuse_symlink( const char *from, const char *to )
 	return 0;
 }
 
+static int pgfuse_rename( const char *from, const char *to )
+{
+	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	PGconn *conn;
+	int res;
+	int from_id;
+	int to_id;
+	PgMeta from_meta;
+	PgMeta to_meta;
+	
+	if( data->verbose ) {
+		syslog( LOG_INFO, "Renaming '%s' to '%s' on '%s', thread #%u",
+			from, to, data->mountpoint, THREAD_ID );
+	}
+
+	ACQUIRE( conn );	
+	PSQL_BEGIN( conn );
+		
+	from_id = psql_read_meta_from_path( conn, from, &from_meta );
+	if( from_id < 0 ) {
+		return from_id;
+	}
+		
+	to_id = psql_read_meta_from_path( conn, to, &to_meta );
+	if( to_id < 0 && to_id != -ENOENT ) {
+		return to_id;
+	}
+	
+	/* destination already exists */
+	if( to_id > 0 ) {
+		/* destination is a file */
+		if( S_ISREG( to_meta.mode ) ) {
+			if( strcmp( from, to ) == 0 ) {
+				/* source equal to destination? This should succeed */
+				return 0;
+			} else {
+				/* otherwise bail out */
+				return -EEXIST;
+			}
+		}
+		/* TODO: handle all other cases */
+		return -EINVAL;
+	}
+	
+	/* TODO: enable also those cases later */
+	if( 	S_ISDIR( from_meta.mode ) ||
+		S_ISLNK( from_meta.mode ) ) {
+		return -EINVAL;
+	}
+	
+	res = psql_rename( conn, from, to );
+	
+	PSQL_COMMIT( conn ); RELEASE( conn );
+
+	return res;
+}
+
 static int pgfuse_readlink( const char *path, char *buf, size_t size )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
@@ -1226,7 +1283,7 @@ static struct fuse_operations pgfuse_oper = {
 	.unlink		= pgfuse_unlink,
 	.rmdir		= pgfuse_rmdir,
 	.symlink	= pgfuse_symlink,
-	.rename		= NULL,
+	.rename		= pgfuse_rename,
 	.link		= NULL,
 	.chmod		= pgfuse_chmod,
 	.chown		= pgfuse_chown,
