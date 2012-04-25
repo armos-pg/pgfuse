@@ -1,0 +1,4 @@
+testfsync.c	- tests flush, fsync, fdatasync, can't be done eaily
+                  with file system commands only
+testpgfsql.c    - standalone tests of libpq interface (for instance
+                  how to handle timestamps)

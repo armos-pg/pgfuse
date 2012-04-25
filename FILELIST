@@ -5,9 +5,6 @@ pgfuse.c        - main and hooks for FUSE operations
 pgsql.c	        - implementation of PostgreSQL access functions
 pgsql.h	        - header file of PostgreSQL access functions
 endian.h        - porting layer for 64-bit conversion functions
-testfsync.c	- tests flush, fsync, fdatasync, can't be done eaily
-                  with file system commands only
-testpgfsql.c    - standalone tests of libpq interface (for instance
-                  how to handle timestamps)
+tests           - test programs
 redhat          - package files for Redhat like Linux systems
 debian          - package fiels for Debian like Linux systems
