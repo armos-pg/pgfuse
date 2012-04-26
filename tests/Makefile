@@ -40,8 +40,8 @@ test: testfsync testpgsql
 	# test fdatasync and fsync
 	./testfsync
 	# show times of dirs, files and symlinks
-	-stat mnt/dir/dir2/afile
-	-stat mnt/dir/dir3
+	-stat mnt/dir/dir4/bfile
+	-stat mnt/dir/dir4
 	-stat mnt/dir/dir2/clink
 	# show filesystem stats (statvfs)
 	-stat -f mnt
