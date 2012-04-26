@@ -4,3 +4,10 @@
 - no support for extended attributes and ACLs
 - tested on Linux only currently
 - no self-containment properties in respect to the database
+- bonnie doesn't pass yet:
+  /usr/sbin/bonnie++ -d mnt/ -x 1 -s 16:8192 -r 0
+  Writing with putc()...done
+  Writing intelligently...done
+  Rewriting...Can't read a full block, only got 0 bytes.
+  Bad seek offset
+  Error in seek(0)
