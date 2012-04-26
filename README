@@ -1,7 +1,7 @@
 Purpose
 -------
 
-Store files and their metadata completly in a PostgreSQL database.
+Store files and their metadata completely in a PostgreSQL database.
 Expose a standard file system with the help of the FUSE API.
 
 Requirements

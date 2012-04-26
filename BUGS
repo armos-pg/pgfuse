@@ -1,7 +1,6 @@
 - no hard-links
 - no mknod support
 - no access right checks
-- no rename supported
 - no support for extended attributes and ACLs
 - tested on Linux only currently
 - no self-containment properties in respect to the database
