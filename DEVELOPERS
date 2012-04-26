@@ -25,13 +25,15 @@ Coding guidelines
   
   Use the internal fuse_opts to parse command line options.
     
-  Use native 'libpq', not abstractions. The database operations
+  Use the native 'libpq', not abstractions. The database operations
   are simple enough. If possible avoid string manipulations as
   for timestamps (we are on low-level OS-abstraction layer, so
   'struct timespec' and epochs are fine).
 
   Consistency of the data should be ensured in the database.
   We don't want to implement an 'fsck' for pgfuse.
+
+  Logging is currently done only over syslog.
           
 Design desicions
 ----------------
@@ -45,7 +47,7 @@ One ByteA field
 
   All data in a big bytea column: needs memory of the size of the
   complete file on client (pgfuse) and server (PostgreSQL) side,
-  is ok for small files (first proof-of-concept implementation).
+  is ok for small files (was the first proof-of-concept implementation).
 
 Multiple ByteA of equal size
 
@@ -77,21 +79,23 @@ Pad blocks in data or not? Or all but the last one, allowing very
 small files to be stored efficiently.
 
 How to tune the block sizes? What factors influence the experiment?
-At the moment we store padded blocks of fixes size (STANDARD_BLOCK_SIZE),
+At the moment we store padded blocks of fixed size (STANDARD_BLOCK_SIZE),
 not really sure if that is good or bad.
 
 The block size should be computed (small files have only one block,
 all other have a a blocksize of the first full block). Gets us more
-independent on some configuration or options.
+independent from configuration or command line options which can mount
+wrong data then. The blocksize should be available when initializing
+the PgFuse filesystem.
 
 Directory tree in database
 --------------------------
 
 Every inode has a 'parent_id', self-referencing. To avoid the NULL
-reference there is a root element point to itself. Pathes are decomposed
-programatically by descending the tree. This requires no additional
-redudant storage is easy to change in renames and gives acceptable
-read performance.
+reference there is a root element pointing to itself. Pathes are
+decomposed programatically by descending the tree. This requires
+no additional redudant storage is easy to change in renames and
+gives acceptable read performance.
 
 Transaction Policies
 --------------------
@@ -99,12 +103,12 @@ Transaction Policies
 Fundamental question: What file operations should form a database transaction?
   
 one extreme: isolate threads and all file operations in one transaction.
-This is most likely an illution, as we can't assume that FUSE threads
-are assigned fix to a specific file (on the contrary!).
+This is most likely an illusion, as we can't assume that FUSE threads
+are assigned to a specific file (on the contrary!).
 
 other extreme: "autocommit" (every write, every read, etc.), this allows
 for parallel usage. We trust in FUSE and the locking there. The database
-should help us sequentiallize the operations.
+should help us to sequentiallize the operations.
 
 Currently the second option was choosen.
   
@@ -133,12 +137,12 @@ Another option is to have many shells open and do some things in
 parallel, like:
 
 while(true);do
-	mkdir mnt/bla
-	rmdir mnt/bla
+	mkdir mnt/dir
+	rmdir mnt/dir
 done
 
 We should actually write a filesystem operation simulator doing all
-kind of random weird operations with certain probabilities.
+kind of random operations with certain probabilities.
 
 References
 ----------

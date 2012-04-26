@@ -1534,9 +1534,6 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 	
-	/* Make sure we have the more modern uint64 representation for timestamps,
-	 * bail out otherwise
-	 */
 	if( strcmp( value, "on" ) != 0 ) {
 		fprintf( stderr, "Expecting UINT64 for timestamps, not doubles. You may use an old version of PostgreSQL (<8.4)\n"
 		         "or PostgreSQL has been compiled with the deprecated compile option '--disable-integer-datetimes'\n" );
