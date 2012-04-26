@@ -1,5 +1,6 @@
 - no hard-links
 - no mknod support
+- no access right checks
 - no rename supported
 - no support for extended attributes and ACLs
 - tested on Linux only currently

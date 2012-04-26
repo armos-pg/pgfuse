@@ -166,7 +166,7 @@ int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 	int binary[1] = { 1 };
 	
 	param1 = htonl( id );
-	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime FROM dir WHERE id = $1::int4",
+	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime, parent_id FROM dir WHERE id = $1::int4",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -213,6 +213,10 @@ int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 	idx = PQfnumber( res, "atime" );
 	data = PQgetvalue( res, 0, idx );
 	meta->atime = convert_from_timestamp( *( (uint64_t *)data ) );
+
+	idx = PQfnumber( res, "parent_id" );
+	data = PQgetvalue( res, 0, idx );
+	meta->parent_id = ntohl( *( (uint32_t *)data ) );
 	
 	PQclear( res );
 	
@@ -794,7 +798,58 @@ int psql_rollback( PGconn *conn )
 	return 0;
 }
 
-int psql_rename( PGconn *conn, const char *from, const char *to )
+int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, const int to_parent_id, const char *rename_to, const char *from, const char *to )
 {
+	PgMeta from_parent_meta;
+	PgMeta to_parent_meta;
+	int id;
+	int param1 = htonl( to_parent_id );
+	int param3 = htonl( from_id );
+	const char *values[3] = { (const char *)&param1, rename_to, (const char *)&param3 };
+	int lengths[3] = { sizeof( param1 ), strlen( rename_to ), sizeof( param3 ) };
+	int binary[3] = { 1, 0, 1 };
+	PGresult *res;
+	
+	id = psql_read_meta( conn, from_parent_id, from, &from_parent_meta );
+	if( id < 0 ) {
+		return id;
+	}
+	
+	if( !S_ISDIR( from_parent_meta.mode ) ) {
+		syslog( LOG_ERR, "Expecting parent with id '%d' of '%s' (id '%d') to be a directory in psql_rename, but mode is '%o'!",
+			from_parent_id, from, from_id, from_parent_meta.mode );
+		return -EIO;
+	}
+	
+	id = psql_read_meta( conn, to_parent_id, to, &to_parent_meta );
+	if( id < 0 ) {
+		return id;
+	}
+
+	if( !S_ISDIR( to_parent_meta.mode ) ) {
+		syslog( LOG_ERR, "Expecting parent with id '%d' of '%s' to be a directory in psql_rename, but mode is '%o'!",
+			to_parent_id, to, to_parent_meta.mode );
+		return -EIO;
+	}
+	
+	res = PQexecParams( conn, "UPDATE dir SET parent_id=$1::int4, name=$2::varchar WHERE id=$3::int4",
+		3, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_rename for '%s' to '%s': %s", 
+			from, to, PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+
+	if( atoi( PQcmdTuples( res ) ) != 1 ) {
+		syslog( LOG_ERR, "Expecting one new row in psql_rename from '%s' to '%s', not %d!",
+			from, to, atoi( PQcmdTuples( res ) ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	PQclear( res );
+			
 	return 0;
 }

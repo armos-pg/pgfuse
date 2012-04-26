@@ -898,16 +898,16 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EBADF;
 	}
-
-	if( data->read_only ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -EROFS;
-	}
 	
 	res = psql_read_meta( conn, fi->fh, path, &meta );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
+	}
+
+	if( data->read_only ) {
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EROFS;
 	}
 	
 	res = psql_truncate( conn, fi->fh, path, offset );
@@ -974,7 +974,7 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 			path, (unsigned int)mode, data->mountpoint,
 			THREAD_ID );
 	}
-	
+
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 	
@@ -983,7 +983,12 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
 	}
-	
+
+	if( data->read_only ) {
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EROFS;
+	}
+		
 	meta.mode = mode;
 	
 	res = psql_write_meta( conn, id, path, meta );
@@ -1018,6 +1023,11 @@ static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
+	}
+
+	if( data->read_only ) {
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EROFS;
 	}
 	
 	meta.uid = uid;
@@ -1054,11 +1064,6 @@ static int pgfuse_symlink( const char *from, const char *to )
 	ACQUIRE( conn );
 	PSQL_BEGIN( conn );
 	
-	if( data->read_only ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -EROFS;
-	}
-	
 	copy_to = strdup( to );
 	if( copy_to == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
@@ -1086,12 +1091,17 @@ static int pgfuse_symlink( const char *from, const char *to )
 	free( copy_to );
 	copy_to = strdup( to );
 	if( copy_to == NULL ) {
-		free( parent_path );
 		syslog( LOG_ERR, "Out of memory in Symlink '%s'!", to );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -ENOMEM;
 	}
-	
+
+	if( data->read_only ) {
+		free( copy_to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EROFS;
+	}
+		
 	symlink = basename( copy_to );
 
 	meta.size = strlen( from );	/* size = length of path */
@@ -1125,6 +1135,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 	}
 	
 	if( res != strlen( from ) ) {
+		free( copy_to );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -EIO;
 	}
@@ -1145,6 +1156,11 @@ static int pgfuse_rename( const char *from, const char *to )
 	int to_id;
 	PgMeta from_meta;
 	PgMeta to_meta;
+	char *copy_to;
+	char *parent_path;
+	int to_parent_id;
+	PgMeta to_parent_meta;
+	char *rename_to;
 	
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Renaming '%s' to '%s' on '%s', thread #%u",
@@ -1185,8 +1201,50 @@ static int pgfuse_rename( const char *from, const char *to )
 		S_ISLNK( from_meta.mode ) ) {
 		return -EINVAL;
 	}
+
+	copy_to = strdup( to );
+	if( copy_to == NULL ) {
+		syslog( LOG_ERR, "Out of memory in Rename '%s'!", to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -ENOMEM;
+	}
 	
-	res = psql_rename( conn, from, to );
+	parent_path = dirname( copy_to );
+
+	to_parent_id = psql_read_meta_from_path( conn, parent_path, &to_parent_meta );
+	if( to_parent_id < 0 ) {
+		free( copy_to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return to_parent_id;
+	}
+	
+	if( !S_ISDIR( to_parent_meta.mode ) ) {
+		syslog( LOG_ERR, "Weird situation in Rename, '%s' expected to be a directory!",
+			parent_path );
+		free( copy_to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EIO;
+	}
+	
+	free( copy_to );
+	copy_to = strdup( to );
+	if( copy_to == NULL ) {
+		syslog( LOG_ERR, "Out of memory in Rename '%s'!", to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -ENOMEM;
+	}
+
+	if( data->read_only ) {
+		free( copy_to );
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -EROFS;
+	}
+		
+	rename_to = basename( copy_to );
+		
+	res = psql_rename( conn, from_id, from_meta.parent_id, to_parent_id, rename_to, from, to );
+	
+	free( copy_to );
 	
 	PSQL_COMMIT( conn ); RELEASE( conn );
 

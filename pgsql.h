@@ -36,6 +36,7 @@ typedef struct PgMeta {
 	struct timespec ctime;	/* last status change time */
 	struct timespec mtime;	/* last modification time */
 	struct timespec atime;	/* last access time */
+	int parent_id;		/* id/inode_no of parenting directory */
 } PgMeta;
 
 /* --- transaction management and policies --- */
@@ -92,6 +93,6 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 
 int psql_truncate( PGconn *conn, const int id, const char *path, const off_t offset );
 
-int psql_rename( PGconn *conn, const char *from, const char *to );
+int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, const int to_parent_id, const char *rename_to, const char *from, const char *to );
 
 #endif
