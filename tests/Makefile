@@ -33,6 +33,7 @@ test: testfsync testpgsql
 	-mkdir mnt/dir/dir3
 	-mv mnt/dir/dir3 mnt/dir/dir4
 	-mv mnt/dir/dir2/afile mnt/dir/dir4/bfile
+	-mv mnt/dir/dir2/clink mnt/dir/dir4/dlink
 	# expect fail (directory not empty)
 	-rmdir mnt/dir
 	# expect fail (not a directory)
@@ -42,7 +43,7 @@ test: testfsync testpgsql
 	# show times of dirs, files and symlinks
 	-stat mnt/dir/dir4/bfile
 	-stat mnt/dir/dir4
-	-stat mnt/dir/dir2/clink
+	-stat mnt/dir/dir4/dlink
 	# show filesystem stats (statvfs)
 	-stat -f mnt
 	# expect success, truncate a file (grow and shrink)

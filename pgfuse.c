@@ -1196,11 +1196,6 @@ static int pgfuse_rename( const char *from, const char *to )
 		return -EINVAL;
 	}
 	
-	/* TODO: enable also those cases later */
-	if( 	S_ISLNK( from_meta.mode ) ) {
-		return -EINVAL;
-	}
-
 	copy_to = strdup( to );
 	if( copy_to == NULL ) {
 		syslog( LOG_ERR, "Out of memory in Rename '%s'!", to );
