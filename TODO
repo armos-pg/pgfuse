@@ -6,6 +6,7 @@ TODO list (in order of priority)
     per-user or root mounts? think about security
     here!
   - extended attributes
+- fill in st_nlink correctly
 - size -> bigint, adapt also code!
 - handle some wird cases with symlink renames, also test them
 - sort out synchronization issues, how much should we lock?

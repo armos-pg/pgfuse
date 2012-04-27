@@ -165,7 +165,7 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	
 	memset( stbuf, 0, sizeof( struct stat ) );
 
-	id = psql_read_meta_from_path( conn, path, &meta );
+	id = psql_read_meta( conn, fi->fh, path, &meta );
 	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return id;
@@ -184,8 +184,7 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
 	/* TODO: set correctly from table */
-	stbuf->st_nlink = 2;
-	/* set rights to the user running 'pgfuse' */
+	stbuf->st_nlink = 1;
 	stbuf->st_uid = meta.uid;
 	stbuf->st_gid = meta.gid;
 
@@ -230,8 +229,7 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
 	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
 	/* TODO: set correctly from table */
-	stbuf->st_nlink = 2;
-	/* set rights to the user running 'pgfuse' */
+	stbuf->st_nlink = 1;
 	stbuf->st_uid = meta.uid;
 	stbuf->st_gid = meta.gid;
 	stbuf->st_atime = meta.atime.tv_sec;
@@ -363,9 +361,8 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	meta.size = 0;
 	meta.mode = mode;
-	/* TODO: use FUSE context */
-	meta.uid = geteuid( );
-	meta.gid = getegid( );
+	meta.uid = fuse_get_context( )->uid;
+	meta.gid = fuse_get_context( )->gid;
 	meta.ctime = now( );
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
@@ -570,9 +567,8 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 
 	meta.size = 0;
 	meta.mode = mode | S_IFDIR; /* S_IFDIR is not set by fuse */
-	/* TODO: use FUSE context */
-	meta.uid = geteuid( );
-	meta.gid = getegid( );
+	meta.uid = fuse_get_context( )->uid;
+	meta.gid = fuse_get_context( )->gid;
 	meta.ctime = now( );
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
