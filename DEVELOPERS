@@ -144,6 +144,11 @@ done
 We should actually write a filesystem operation simulator doing all
 kind of random operations with certain probabilities.
 
+http://www.iozone.org/ is another option.
+
+One of the list at http://ltp.sourceforge.net/tooltable.php. Not
+tried yet though.
+
 References
 ----------
 
