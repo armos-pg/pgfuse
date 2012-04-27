@@ -33,7 +33,7 @@
 #include <pthread.h>		/* for pthread_self */
 
 #if FUSE_VERSION < 21
-#error Currently only written for newest FUSE  APIversion (FUSE_VERSION 28)
+#error Currently only written for newer FUSE API (FUSE_VERSION at least 21)
 #endif
 
 #include "config.h"		/* compiled in defaults */
