@@ -60,6 +60,7 @@ test: testfsync testpgsql
 clean:
 	rm -f testfsync testfsync.o
 	rm -f testpgsql testpgsql.o
+	rm -f testtypes testtypes.o
 	
 testfsync: testfsync.o
 	$(CC) -o testfsync testfsync.o
@@ -72,3 +73,9 @@ testpgsql: testpgsql.o
 
 testpgsql.o: testpgsql.c
 	$(CC) -c $(CFLAGS) -o testpgsql.o testpgsql.c
+
+testtypes: testtypes.o
+	$(CC) -o testtypes testtypes.o
+
+testtypes.o: testtypes.c
+	$(CC) -c $(CFLAGS) -o testtypes.o testtypes.c

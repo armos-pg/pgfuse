@@ -112,7 +112,7 @@ int psql_path_to_id( PGconn *conn, const char *path )
 		values[0] = name;
 		lengths[0] = strlen( name );
 		
-		res = PQexecParams( conn, "SELECT id, mode FROM dir WHERE name = $1::varchar and parent_id = $2::int4",
+		res = PQexecParams( conn, "SELECT id, mode FROM dir WHERE name = $1::varchar and parent_id = $2::integer",
 			2, NULL, values, lengths, binary, 1 );
 
 		if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -166,7 +166,7 @@ int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 	int binary[1] = { 1 };
 	
 	param1 = htonl( id );
-	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime, parent_id FROM dir WHERE id = $1::int4",
+	res = PQexecParams( conn, "SELECT size, mode, uid, gid, ctime, mtime, atime, parent_id FROM dir WHERE id = $1::integer",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -188,7 +188,7 @@ int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 	
 	idx = PQfnumber( res, "size" );
 	data = PQgetvalue( res, 0, idx );
-	meta->size = ntohl( *( (uint32_t *)data ) );
+	meta->size = be64toh( *( (int64_t *)data ) );
 	
 	idx = PQfnumber( res, "mode" );
 	data = PQgetvalue( res, 0, idx );
@@ -237,7 +237,7 @@ int psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta )
 int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 {
 	int param1 = htonl( id );
-	int param2 = htonl( meta.size );
+	int64_t param2 = htobe64( meta.size );
 	int param3 = htonl( meta.mode );
 	int param4 = htonl( meta.uid );
 	int param5 = htonl( meta.gid );
@@ -249,7 +249,7 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 	int binary[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "UPDATE dir SET size=$2::int4, mode=$3::int4, uid=$4::int4, gid=$5::int4, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp WHERE id=$1::int4",
+	res = PQexecParams( conn, "UPDATE dir SET size=$2::bigint, mode=$3::integer, uid=$4::integer, gid=$5::integer, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp WHERE id=$1::integer",
 		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -266,7 +266,7 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, PgMeta meta )
 {
 	int param1 = htonl( parent_id );
-	int param2 = htonl( meta.size );
+	int64_t param2 = htobe64( meta.size );
 	int param3 = htonl( meta.mode );
 	int param4 = htonl( meta.uid );
 	int param5 = htonl( meta.gid );
@@ -278,7 +278,7 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	int binary[9] = { 1, 0, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::int4, $4::int4, $5::int4, $6::int4, $7::timestamp, $8::timestamp, $9::timestamp )",
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::integer, $2::varchar, $3::bigint, $4::integer, $5::integer, $6::integer, $7::timestamp, $8::timestamp, $9::timestamp )",
 		9, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -336,7 +336,7 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	param2 = htonl( info.from_block );
 	param3 = htonl( info.to_block );
 
-	res = PQexecParams( conn, "SELECT block_no, data FROM data WHERE dir_id=$1::int4 AND block_no>=$2::int4 AND block_no<=$3::int4 ORDER BY block_no ASC",
+	res = PQexecParams( conn, "SELECT block_no, data FROM data WHERE dir_id=$1::integer AND block_no>=$2::integer AND block_no<=$3::integer ORDER BY block_no ASC",
 		3, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -416,7 +416,7 @@ int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t 
 	int i;
 	char *name;
 	
-	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::int4",
+	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::integer",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -452,7 +452,7 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 	int binary[8] = { 1, 0, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::int4, $2::varchar, $3::int4, $4::int4, $5::int4, $6::timestamp, $7::timestamp, $8::timestamp )",
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::integer, $2::varchar, $3::integer, $4::integer, $5::integer, $6::timestamp, $7::timestamp, $8::timestamp )",
 		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -483,7 +483,7 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 	char *iptr;
 	int count;
 	
-	res = PQexecParams( conn, "SELECT COUNT(*) FROM dir where parent_id=$1::int4",
+	res = PQexecParams( conn, "SELECT COUNT(*) FROM dir where parent_id=$1::integer",
 		1, NULL, values, lengths, binary, 0 );
 		
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -508,7 +508,7 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 
 	PQclear( res );
 		
-	res = PQexecParams( conn, "DELETE FROM dir where id=$1::int4",
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::integer",
 		1, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -530,7 +530,7 @@ int psql_delete_file( PGconn *conn, const int id, const char *path )
 	int binary[1] = { 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "DELETE FROM dir where id=$1::int4",
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::integer",
 		1, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -567,24 +567,24 @@ update_again:
 	/* write a complete block, old data in the database doesn't bother us */
 	if( offset == 0 && len == STANDARD_BLOCK_SIZE ) {
 		
-		strcpy( sql, "UPDATE data set data = $3::bytea WHERE dir_id=$1::int4 AND block_no=$2::int4" );
+		strcpy( sql, "UPDATE data set data = $3::bytea WHERE dir_id=$1::integer AND block_no=$2::integer" );
 		
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::integer AND block_no=$2::integer",
 			(unsigned int)len + 1, STANDARD_BLOCK_SIZE - (unsigned int)len );
 
 	/* keep data on the left */
 	} else if( offset > 0 && offset + len == STANDARD_BLOCK_SIZE ) {
 		
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::integer AND block_no=$2::integer",
 			1, (unsigned int)offset );
 
 	/* small in the middle write, keep data on both sides */
 	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::int4 AND block_no=$2::int4",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::integer AND block_no=$2::integer",
 			1, (unsigned int)offset,
 			(unsigned int)offset + (unsigned int)len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + (unsigned int)len ) );
 						
@@ -628,7 +628,7 @@ update_again:
 	
 	/* the block didn't exist, so create one */
 	res = PQexecParams( conn, "INSERT INTO data( dir_id, block_no ) VALUES"
-		" ( $1::int4, $2::int4 )",
+		" ( $1::integer, $2::integer )",
 		2, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -728,7 +728,7 @@ int psql_truncate( PGconn *conn, const int id, const char *path, const off_t off
 	param1 = htonl( id );
 	param2 = htonl( info.to_block );
 	
-	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::int4 AND block_no>$2::int4",
+	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::integer AND block_no>$2::integer",
 		2, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( dbres ) != PGRES_COMMAND_OK ) {
@@ -832,7 +832,7 @@ int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, cons
 		return -EIO;
 	}
 	
-	res = PQexecParams( conn, "UPDATE dir SET parent_id=$1::int4, name=$2::varchar WHERE id=$3::int4",
+	res = PQexecParams( conn, "UPDATE dir SET parent_id=$1::integer, name=$2::varchar WHERE id=$3::integer",
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {

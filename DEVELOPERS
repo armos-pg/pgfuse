@@ -15,10 +15,10 @@ Coding guidelines
 
   8-character TABs.
     
-  Standard C89, portable to all platforms supporting FUSE (Linux,
-  FreeBSD, OpenBSD, NetBSD, Darwin/MacOSX). No C++, no C99. Some
-  newer 64-bit things like 'endian.h' are allowed, if there is no
-  other option.
+  Standard C99, portable to all platforms supporting FUSE (Linux,
+  FreeBSD, OpenBSD, NetBSD, Darwin/MacOSX). No C++, normally no C99.
+  Some newer 64-bit things like 'endian.h', 'stdint.h' are allowed,
+  if there is no other option.
     
   Do not introduce unnecessary 3rd party dependencies in addition
   to the required 'libfuse' and 'libpq'.

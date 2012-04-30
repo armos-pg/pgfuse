@@ -21,6 +21,7 @@
 #include <sys/types.h>		/* size_t */
 #include <sys/time.h>		/* for struct timespec */
 #include <sys/stat.h>		/* mode_t */
+#include <stdint.h>		/* for uint64_t */
 
 #include <fuse.h>		/* for user-land filesystem */
 
@@ -29,7 +30,7 @@
 /* --- metadata stored about a file/directory/synlink --- */
 
 typedef struct PgMeta {
-	size_t size;		/* the size of the file */
+	int64_t size;		/* the size of the file (naturally the bigint on PostgreSQL) */
 	mode_t mode;		/* type and permissions of file/directory */
 	uid_t uid;		/* owner of the file/directory */
 	gid_t gid;		/* group owner of the file/directory */
