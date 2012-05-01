@@ -2,7 +2,7 @@ Note for Packagers
 ------------------
 
 The SPEC file in 'redhat' and the files in 'debian' are
-for the OpenSuse Build service. They can serve as template
+for the OpenSuse Build service. They can serve as templates
 for your own packaging. Feedback on erros is highly welcome.
 
 For Archlinux I maintain my own package at
@@ -10,4 +10,4 @@ For Archlinux I maintain my own package at
 https://aur.archlinux.org/packages.php?ID=58648
 
 Please drop a note there if you have troubles with the
-packages, don't fork your own ones!
+Arch package, don't fork your own one!

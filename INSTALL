@@ -4,11 +4,13 @@ Prerequisites
 required:
 
 * libpq from Postgresql and header files
+* libfuse FUSE library and header files
 
 Compilation
 -----------
 
 make
+make install [DESTDIR=x] [prefix=x]
 
 Installation
 ------------
