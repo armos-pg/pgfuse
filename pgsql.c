@@ -320,7 +320,7 @@ int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, 
 	int idx;
 	char *dst;
 	PgMeta meta;
-	int size;	
+	size_t size;	
 	int64_t tmp;
 	
 	tmp = psql_read_meta( conn, id, path, &meta );

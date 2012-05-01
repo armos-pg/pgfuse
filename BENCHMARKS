@@ -1,0 +1,8 @@
+Version  1.03e      ------Sequential Output------ --Sequential Input- --Random-
+                    -Per Chr- --Block-- -Rewrite- -Per Chr- --Block-- --Seeks--
+Machine        Size K/sec %CP K/sec %CP K/sec %CP K/sec %CP K/sec %CP  /sec %CP
+euroserver      16M   466   1   468   0   462   0 +++++ +++ +++++ +++ 540.9   0
+                    ------Sequential Create------ --------Random Create--------
+                    -Create-- --Read--- -Delete-- -Create-- --Read--- -Delete--
+files:max:min        /sec %CP  /sec %CP  /sec %CP  /sec %CP  /sec %CP  /sec %CP
+euroserver       16   107   0  1387   2   105   0   115   0  1404   2   105   0
