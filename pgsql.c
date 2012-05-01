@@ -312,11 +312,11 @@ int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, 
 	int binary[3] = { 1, 1, 1 };
 	PGresult *res;
 	char zero_block[STANDARD_BLOCK_SIZE];
-	int block_no;
+	int64_t block_no;
 	char *iptr;
 	char *data;
 	size_t copied;
-	int db_block_no = 0;
+	int64_t db_block_no = 0;
 	int idx;
 	char *dst;
 	PgMeta meta;
@@ -361,7 +361,7 @@ int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, 
 		/* handle sparse files */
 		if( idx < PQntuples( res ) ) {
 			iptr = PQgetvalue( res, idx, 0 );
-			db_block_no = ntohl( *( (uint32_t *)iptr ) );
+			db_block_no = ntohl( *( (int64_t *)iptr ) );
 		
 			if( block_no < db_block_no ) {
 				data = zero_block;
@@ -396,16 +396,16 @@ int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, 
 		}
 
 		if( verbose ) {
-			syslog( LOG_DEBUG, "File '%s', reading block '%d', copied: '%d', DB block: '%d'",
-				path, block_no, (unsigned int)copied, db_block_no );
+			syslog( LOG_DEBUG, "File '%s', reading block '%"PRIi64"', copied: '%zu', DB block: '%"PRIi64"'",
+				path, block_no, copied, db_block_no );
 		}
 	}
 
 	PQclear( res );
 	
 	if( copied != size ) {
-		syslog( LOG_ERR, "File '%s', reading block '%d', copied '%d' bytes but expecting '%d'!",
-			path, block_no, (unsigned int)copied, size );
+		syslog( LOG_ERR, "File '%s', reading block '%"PRIi64"', copied '%zu' bytes but expecting '%zu'!",
+			path, block_no, copied, size );
 		return -EIO;
 	}
 	
@@ -579,39 +579,39 @@ update_again:
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
-			len + 1, STANDARD_BLOCK_SIZE - (unsigned int)len );
+		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %zu for %zu ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
+			len + 1, (size_t)STANDARD_BLOCK_SIZE - len );
 
 	/* keep data on the left */
 	} else if( offset > 0 && offset + len == STANDARD_BLOCK_SIZE ) {
 		
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::bigint AND block_no=$2::bigint",
-			1, (unsigned int)offset );
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %jd ) || $3::bytea WHERE dir_id=$1::bigint AND block_no=$2::bigint",
+			1, offset );
 
 	/* small in the middle write, keep data on both sides */
 	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
-			1, (unsigned int)offset,
-			(unsigned int)offset + (unsigned int)len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + (unsigned int)len ) );
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %jd ) || $3::bytea || substring( data from %jd for %jd ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
+			1, offset,
+			offset + len + 1, STANDARD_BLOCK_SIZE - ( offset + len ) );
 						
 	/* we should never get here */
 	} else {
-		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%"PRIi64"': offset: %u, len: %u, blocksize: %u",
-			path, block_no, (unsigned int)offset, (unsigned int)len, STANDARD_BLOCK_SIZE );
+		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%"PRIi64"': offset: %jd, len: %zu, blocksize: %u",
+			path, block_no, offset, len, STANDARD_BLOCK_SIZE );
 		return -EIO;
 	}		
 	
 	if( verbose ) {
-		syslog( LOG_DEBUG, "%s, block: %"PRIi64", offset: %d, len: %d => %s\n",
-			path, block_no, (unsigned int)offset, (unsigned int)len, sql );
+		syslog( LOG_DEBUG, "%s, block: %"PRIi64", offset: %jd, len: %zu => %s\n",
+			path, block_no, offset, len, sql );
 	}
 	
 	res = PQexecParams( conn, sql, 3, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%u,%u) for file '%s' (%s): %s",
-			block_no, (unsigned int)offset, (unsigned int)len, path,
+		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%jd,%zu) for file '%s' (%s): %s",
+			block_no, offset, len, path,
 			sql, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
@@ -639,8 +639,8 @@ update_again:
 		2, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%u,%u) for file '%s' allocating new block '%"PRIi64"': %s",
-			block_no, (unsigned int)offset, (unsigned int)len, path, block_no, PQerrorMessage( conn ) );
+		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%jd,%zu) for file '%s' allocating new block '%"PRIi64"': %s",
+			block_no, offset, len, path, block_no, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
@@ -673,8 +673,8 @@ int psql_write_buf( PGconn *conn, const int64_t id, const char *path, const char
 		return res;
 	}
 	if( res != info.from_len ) {
-		syslog( LOG_ERR, "Partial write in file '%s' in first block '%"PRIi64"' (%u instead of %u octets)",
-			path, info.from_block, res, (unsigned int)info.from_len );
+		syslog( LOG_ERR, "Partial write in file '%s' in first block '%"PRIi64"' (%u instead of %zu octets)",
+			path, info.from_block, res, info.from_len );
 		return -EIO;
 	}
 	
@@ -705,8 +705,8 @@ int psql_write_buf( PGconn *conn, const int64_t id, const char *path, const char
 		return res;
 	}
 	if( res != info.to_len ) {
-		syslog( LOG_ERR, "Partial write in file '%s' in last block '%"PRIi64"' (%u instead of %u octets)",
-			path, block_no, res, (unsigned int)info.to_len );
+		syslog( LOG_ERR, "Partial write in file '%s' in last block '%"PRIi64"' (%u instead of %zu octets)",
+			path, block_no, res, info.to_len );
 		return -EIO;
 	}
 	
@@ -739,8 +739,8 @@ int psql_truncate( PGconn *conn, const int64_t id, const char *path, const off_t
 		2, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( dbres ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_truncate for file '%s' to size '%u': %s",
-			path, (unsigned int)offset, PQerrorMessage( conn ) );
+		syslog( LOG_ERR, "Error in psql_truncate for file '%s' to size '%jd': %s",
+			path, offset, PQerrorMessage( conn ) );
 		PQclear( dbres );
 		return -EIO;
 	}

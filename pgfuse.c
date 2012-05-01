@@ -741,8 +741,8 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 	PGconn *conn;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Write to '%s' from offset %d, size %d on '%s', thread #%u",
-			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
+		syslog( LOG_INFO, "Write to '%s' from offset %jd, size %zu on '%s', thread #%u",
+			path, offset, size, data->mountpoint,
 			THREAD_ID );
 	}
 
@@ -800,8 +800,8 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 	PGconn *conn;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Read to '%s' from offset %d, size %d on '%s', thread #%u",
-			path, (unsigned int)offset, (unsigned int)size, data->mountpoint,
+		syslog( LOG_INFO, "Read to '%s' from offset %jd, size %zu on '%s', thread #%u",
+			path, offset, size, data->mountpoint,
 			THREAD_ID );
 	}
 
@@ -833,8 +833,8 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	PGconn *conn;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%u",
-			path, (unsigned int)offset, data->mountpoint, THREAD_ID );
+		syslog( LOG_INFO, "Truncate of '%s' to size '%jd' on '%s', thread #%u",
+			path, offset, data->mountpoint, THREAD_ID );
 	}
 
 	ACQUIRE( conn );
@@ -888,8 +888,8 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 	PGconn *conn;
 
 	if( data->verbose ) {
-		syslog( LOG_INFO, "Truncate of '%s' to size '%d' on '%s', thread #%u",
-			path, (unsigned int)offset, data->mountpoint,
+		syslog( LOG_INFO, "Truncate of '%s' to size '%jd' on '%s', thread #%u",
+			path, offset, data->mountpoint,
 			THREAD_ID );
 	}
 

@@ -37,7 +37,7 @@ typedef struct PgMeta {
 	struct timespec ctime;	/* last status change time */
 	struct timespec mtime;	/* last modification time */
 	struct timespec atime;	/* last access time */
-	int parent_id;		/* id/inode_no of parenting directory */
+	int64_t parent_id;		/* id/inode_no of parenting directory */
 } PgMeta;
 
 /* --- transaction management and policies --- */
