@@ -149,6 +149,15 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 
+	value = PQparameterStatus( conn, "client_encoding" );
+	if( value == NULL ) {
+		fprintf( stderr, "PQ param client_encoding empty?\n" );
+		PQfinish( conn );
+		return 1;
+	}
+	
+	printf( "integer_datetimes: %s\n", value );
+
 	PQfinish( conn );
 	
 	return 0;

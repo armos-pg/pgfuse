@@ -1,6 +1,6 @@
 CREATE TABLE dir (
-	id SERIAL,
-	parent_id INTEGER,
+	id BIGSERIAL,
+	parent_id BIGINT,
 	name TEXT,
 	size BIGINT DEFAULT 0,
 	mode INTEGER NOT NULL DEFAULT 0,
@@ -16,8 +16,8 @@ CREATE TABLE dir (
 
 -- TODO: 4096 is STANDARD_BLOCK_SIZE in config.h, must be in sync!
 CREATE TABLE data (
-	dir_id INTEGER,
-	block_no INTEGER NOT NULL DEFAULT 0,
+	dir_id BIGINT,
+	block_no BIGINT NOT NULL DEFAULT 0,
 	data BYTEA NOT NULL DEFAULT repeat(E'\\000',4096)::bytea,
 	PRIMARY KEY( dir_id, block_no ),
 	FOREIGN KEY( dir_id ) REFERENCES dir( id )

@@ -2,7 +2,7 @@ include ../inc.mak
 
 PG_CONNINFO = ""
 
-test: testfsync testpgsql
+test: testfsync testpgsql testtypes
 	psql < clean.sql
 	psql < ../schema.sql
 	test -d mnt || mkdir mnt

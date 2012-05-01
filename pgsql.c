@@ -24,6 +24,7 @@
 #include <errno.h>		/* for ENOENT and friends */
 #include <arpa/inet.h>		/* for htonl, ntohl */
 #include <stdint.h>		/* for uint64_t */
+#include <inttypes.h>		/* for PRIxxx macros */
 
 #include "endian.h"		/* for be64toh and htobe64 */
 
@@ -54,10 +55,10 @@ static struct timespec convert_from_timestamp( uint64_t raw )
 
 /* block information for read/write/truncate */
 typedef struct PgDataInfo {
-	unsigned int from_block;
+	int64_t from_block;
 	off_t from_offset;
 	size_t from_len;
-	unsigned int to_block;
+	int64_t to_block;
 	size_t to_len;
 } PgDataInfo;
 
@@ -92,7 +93,7 @@ int psql_path_to_id( PGconn *conn, const char *path )
 	PGresult *res;
 	int idx;
 	char *data;
-	int id = htonl( 0 );
+	int64_t id = htobe64( 0 );
 	char *name;
 	const char *values[2] = { NULL, (const char *)&id };
 	int lengths[2] = { 0, sizeof( id ) };
@@ -112,7 +113,7 @@ int psql_path_to_id( PGconn *conn, const char *path )
 		values[0] = name;
 		lengths[0] = strlen( name );
 		
-		res = PQexecParams( conn, "SELECT id, mode FROM dir WHERE name = $1::varchar and parent_id = $2::integer",
+		res = PQexecParams( conn, "SELECT id, mode FROM dir WHERE name = $1::varchar and parent_id = $2::bigint",
 			2, NULL, values, lengths, binary, 1 );
 
 		if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -137,7 +138,7 @@ int psql_path_to_id( PGconn *conn, const char *path )
 		
 		idx = PQfnumber( res, "id" );
 		data = PQgetvalue( res, 0, idx );
-		id = *( (uint32_t *)data );
+		id = *( (int64_t *)data );
 
 		idx = PQfnumber( res, "mode" );
 		data = PQgetvalue( res, 0, idx );
@@ -150,12 +151,12 @@ int psql_path_to_id( PGconn *conn, const char *path )
 	
 	free( copy_path );
 	
-	return ntohl( id );
+	return be64toh( id );
 }
 
 /* --- postgresql implementation --- */
 
-int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
+int psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *meta )
 {
 	PGresult *res;
 	int idx;
@@ -216,7 +217,7 @@ int psql_read_meta( PGconn *conn, const int id, const char *path, PgMeta *meta )
 
 	idx = PQfnumber( res, "parent_id" );
 	data = PQgetvalue( res, 0, idx );
-	meta->parent_id = ntohl( *( (uint32_t *)data ) );
+	meta->parent_id = ntohl( *( (int64_t *)data ) );
 	
 	PQclear( res );
 	
@@ -234,9 +235,9 @@ int psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta )
 	return psql_read_meta( conn, id, path, meta );
 }
 
-int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
+int psql_write_meta( PGconn *conn, const int64_t id, const char *path, PgMeta meta )
 {
-	int param1 = htonl( id );
+	int64_t param1 = htobe64( id );
 	int64_t param2 = htobe64( meta.size );
 	int param3 = htonl( meta.mode );
 	int param4 = htonl( meta.uid );
@@ -249,7 +250,7 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 	int binary[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "UPDATE dir SET size=$2::bigint, mode=$3::integer, uid=$4::integer, gid=$5::integer, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp WHERE id=$1::integer",
+	res = PQexecParams( conn, "UPDATE dir SET size=$2::bigint, mode=$3::integer, uid=$4::integer, gid=$5::integer, ctime=$6::timestamp, mtime=$7::timestamp, atime=$8::timestamp WHERE id=$1::bigint",
 		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -263,9 +264,9 @@ int psql_write_meta( PGconn *conn, const int id, const char *path, PgMeta meta )
 	return 0;
 }
 
-int psql_create_file( PGconn *conn, const int parent_id, const char *path, const char *new_file, PgMeta meta )
+int psql_create_file( PGconn *conn, const int64_t parent_id, const char *path, const char *new_file, PgMeta meta )
 {
-	int param1 = htonl( parent_id );
+	int64_t param1 = htobe64( parent_id );
 	int64_t param2 = htobe64( meta.size );
 	int param3 = htonl( meta.mode );
 	int param4 = htonl( meta.uid );
@@ -278,7 +279,7 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	int binary[9] = { 1, 0, 1, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::integer, $2::varchar, $3::bigint, $4::integer, $5::integer, $6::integer, $7::timestamp, $8::timestamp, $9::timestamp )",
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, size, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::bigint, $2::varchar, $3::bigint, $4::integer, $5::integer, $6::integer, $7::timestamp, $8::timestamp, $9::timestamp )",
 		9, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -300,12 +301,12 @@ int psql_create_file( PGconn *conn, const int parent_id, const char *path, const
 	return 0;
 }
 
-int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, const off_t offset, const size_t len, int verbose )
+int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, const off_t offset, const size_t len, int verbose )
 {
 	PgDataInfo info;
-	int param1;
-	int param2;
-	int param3; 
+	int64_t param1;
+	int64_t param2;
+	int64_t param3; 
 	const char *values[3] = { (const char *)&param1, (const char *)&param2, (const char *)&param3 };
 	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), sizeof( param3 ) };
 	int binary[3] = { 1, 1, 1 };
@@ -319,7 +320,13 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	int idx;
 	char *dst;
 	PgMeta meta;
-	int size;
+	int size;	
+	int tmp;
+	
+	tmp = psql_read_meta( conn, id, path, &meta );
+	if( tmp < 0 ) {
+		return tmp;
+	}
 		
 	if( meta.size == 0 ) {
 		return 0;
@@ -332,11 +339,11 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	
 	info = compute_block_info( offset, size );
 	
-	param1 = htonl( id );
-	param2 = htonl( info.from_block );
-	param3 = htonl( info.to_block );
+	param1 = htobe64( id );
+	param2 = htobe64( info.from_block );
+	param3 = htobe64( info.to_block );
 
-	res = PQexecParams( conn, "SELECT block_no, data FROM data WHERE dir_id=$1::integer AND block_no>=$2::integer AND block_no<=$3::integer ORDER BY block_no ASC",
+	res = PQexecParams( conn, "SELECT block_no, data FROM data WHERE dir_id=$1::bigint AND block_no>=$2::bigint AND block_no<=$3::bigint ORDER BY block_no ASC",
 		3, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -405,9 +412,9 @@ int psql_read_buf( PGconn *conn, const int id, const char *path, char *buf, cons
 	return copied;
 }
 
-int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t filler )
+int psql_readdir( PGconn *conn, const int64_t parent_id, void *buf, fuse_fill_dir_t filler )
 {
-	int param1 = htonl( parent_id );
+	int64_t param1 = htobe64( parent_id );
 	const char *values[1] = { (char *)&param1 };
 	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
@@ -416,11 +423,11 @@ int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t 
 	int i;
 	char *name;
 	
-	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::integer",
+	res = PQexecParams( conn, "SELECT name FROM dir WHERE parent_id = $1::bigint",
 		1, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%d': %s",
+		syslog( LOG_ERR, "Error in psql_readdir for dir with id '%20"PRIu64"': %s",
 			parent_id, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
@@ -438,9 +445,9 @@ int psql_readdir( PGconn *conn, const int parent_id, void *buf, fuse_fill_dir_t 
 	return 0;
 }
 
-int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const char *new_dir, PgMeta meta )
+int psql_create_dir( PGconn *conn, const int64_t parent_id, const char *path, const char *new_dir, PgMeta meta )
 {
-	int param1 = htonl( parent_id );
+	int64_t param1 = htobe64( parent_id );
 	int param2 = htonl( meta.mode );
 	int param3 = htonl( meta.uid );
 	int param4 = htonl( meta.gid );
@@ -452,7 +459,7 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 	int binary[8] = { 1, 0, 1, 1, 1, 1, 1, 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::integer, $2::varchar, $3::integer, $4::integer, $5::integer, $6::timestamp, $7::timestamp, $8::timestamp )",
+	res = PQexecParams( conn, "INSERT INTO dir( parent_id, name, mode, uid, gid, ctime, mtime, atime ) VALUES ($1::bigint, $2::varchar, $3::integer, $4::integer, $5::integer, $6::timestamp, $7::timestamp, $8::timestamp )",
 		8, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -473,9 +480,9 @@ int psql_create_dir( PGconn *conn, const int parent_id, const char *path, const 
 	return 0;
 }
 
-int psql_delete_dir( PGconn *conn, const int id, const char *path )
+int psql_delete_dir( PGconn *conn, const int64_t id, const char *path )
 {
-	int param1 = htonl( id );
+	int64_t param1 = htobe64( id );
 	const char *values[1] = { (char *)&param1 };
 	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
@@ -483,7 +490,7 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 	char *iptr;
 	int count;
 	
-	res = PQexecParams( conn, "SELECT COUNT(*) FROM dir where parent_id=$1::integer",
+	res = PQexecParams( conn, "SELECT COUNT(*) FROM dir where parent_id=$1::bigint",
 		1, NULL, values, lengths, binary, 0 );
 		
 	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -493,7 +500,7 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 	}
 
 	if( PQntuples( res ) != 1 ) {
-		syslog( LOG_ERR, "Expecting COUNT(*) to return 1 tupe, weird!" );
+		syslog( LOG_ERR, "Expecting COUNT(*) to return 1 tupel, weird!" );
 		PQclear( res );
 		return -EIO;
 	}
@@ -508,7 +515,7 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 
 	PQclear( res );
 		
-	res = PQexecParams( conn, "DELETE FROM dir where id=$1::integer",
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::bigint",
 		1, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -522,15 +529,15 @@ int psql_delete_dir( PGconn *conn, const int id, const char *path )
 	return 0;
 }
 
-int psql_delete_file( PGconn *conn, const int id, const char *path )
+int psql_delete_file( PGconn *conn, const int64_t id, const char *path )
 {
-	int param1 = htonl( id );
+	int64_t param1 = htobe64( id );
 	const char *values[1] = { (char *)&param1 };
 	int lengths[1] = { sizeof( param1 ) };
 	int binary[1] = { 1 };
 	PGresult *res;
 	
-	res = PQexecParams( conn, "DELETE FROM dir where id=$1::integer",
+	res = PQexecParams( conn, "DELETE FROM dir where id=$1::bigint",
 		1, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
@@ -545,10 +552,10 @@ int psql_delete_file( PGconn *conn, const int id, const char *path )
 	return 0;
 }
 
-static int psql_write_block( PGconn *conn, const int id, const char *path, const char *buf, const unsigned int block_no, const off_t offset, const size_t len, int verbose )
+static int psql_write_block( PGconn *conn, const int64_t id, const char *path, const char *buf, const int64_t block_no, const off_t offset, const size_t len, int verbose )
 {
-	int param1 = htonl( id );
-	int param2 = htonl( block_no );
+	int64_t param1 = htobe64( id );
+	int64_t param2 = htobe64( block_no );
 	const char *values[3] = { (const char *)&param1, (const char *)&param2, buf };
 	int lengths[3] = { sizeof( param1 ), sizeof( param2 ), len };
 	int binary[3] = { 1, 1, 1 };
@@ -557,8 +564,8 @@ static int psql_write_block( PGconn *conn, const int id, const char *path, const
 	
 	/* could actually be an assertion, as this can never happen */
 	if( offset + len > STANDARD_BLOCK_SIZE ) {
-		syslog( LOG_ERR, "Got a too big block write for file '%s', block '%d': %u + %u > %d!",
-			path, block_no, (unsigned int)offset, (unsigned int)len, STANDARD_BLOCK_SIZE );
+		syslog( LOG_ERR, "Got a too big block write for file '%s', block '%20"PRIi64"': %20jd + %20zu > %d!",
+			path, block_no, offset, len, STANDARD_BLOCK_SIZE );
 		return -EIO;
 	}
 
@@ -567,18 +574,18 @@ update_again:
 	/* write a complete block, old data in the database doesn't bother us */
 	if( offset == 0 && len == STANDARD_BLOCK_SIZE ) {
 		
-		strcpy( sql, "UPDATE data set data = $3::bytea WHERE dir_id=$1::integer AND block_no=$2::integer" );
+		strcpy( sql, "UPDATE data set data = $3::bytea WHERE dir_id=$1::bigint AND block_no=$2::bigint" );
 		
 	/* keep data on the right */
 	} else if( offset == 0 && len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::integer AND block_no=$2::integer",
-			(unsigned int)len + 1, STANDARD_BLOCK_SIZE - (unsigned int)len );
+		sprintf( sql, "UPDATE data set data = $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
+			len + 1, STANDARD_BLOCK_SIZE - (unsigned int)len );
 
 	/* keep data on the left */
 	} else if( offset > 0 && offset + len == STANDARD_BLOCK_SIZE ) {
 		
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::integer AND block_no=$2::integer",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea WHERE dir_id=$1::bigint AND block_no=$2::bigint",
 			1, (unsigned int)offset );
 
 	/* small in the middle write, keep data on both sides */
@@ -590,20 +597,20 @@ update_again:
 						
 	/* we should never get here */
 	} else {
-		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%d': offset: %u, len: %u, blocksize: %u",
+		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%"PRIi64"': offset: %u, len: %u, blocksize: %u",
 			path, block_no, (unsigned int)offset, (unsigned int)len, STANDARD_BLOCK_SIZE );
 		return -EIO;
 	}		
 	
 	if( verbose ) {
-		syslog( LOG_DEBUG, "%s, block: %d, offset: %d, len: %d => %s\n",
+		syslog( LOG_DEBUG, "%s, block: %"PRIi64", offset: %d, len: %d => %s\n",
 			path, block_no, (unsigned int)offset, (unsigned int)len, sql );
 	}
 	
 	res = PQexecParams( conn, sql, 3, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_block(%d,%u,%u) for file '%s' (%s): %s",
+		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%u,%u) for file '%s' (%s): %s",
 			block_no, (unsigned int)offset, (unsigned int)len, path,
 			sql, PQerrorMessage( conn ) );
 		PQclear( res );
@@ -618,7 +625,7 @@ update_again:
 
 	/* funny problems */
 	if( atoi( PQcmdTuples( res ) ) != 0 ) {
-		syslog( LOG_ERR, "Unable to update block '%d' of file '%s'! Data consistency problems!",
+		syslog( LOG_ERR, "Unable to update block '%"PRIi64"' of file '%s'! Data consistency problems!",
 			block_no, path );
 		PQclear( res );
 		return -EIO;
@@ -628,18 +635,18 @@ update_again:
 	
 	/* the block didn't exist, so create one */
 	res = PQexecParams( conn, "INSERT INTO data( dir_id, block_no ) VALUES"
-		" ( $1::integer, $2::integer )",
+		" ( $1::bigint, $2::bigint )",
 		2, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
-		syslog( LOG_ERR, "Error in psql_write_block(%d,%u,%u) for file '%s' allocating new block '%d': %s",
+		syslog( LOG_ERR, "Error in psql_write_block(%"PRIi64",%u,%u) for file '%s' allocating new block '%"PRIi64"': %s",
 			block_no, (unsigned int)offset, (unsigned int)len, path, block_no, PQerrorMessage( conn ) );
 		PQclear( res );
 		return -EIO;
 	}
 	
 	if( atoi( PQcmdTuples( res ) ) != 1 ) {
-		syslog( LOG_ERR, "Unable to add new block '%d' of file '%s'! Data consistency problems!",
+		syslog( LOG_ERR, "Unable to add new block '%"PRIi64"' of file '%s'! Data consistency problems!",
 			block_no, path );
 		PQclear( res );
 		return -EIO;
@@ -650,11 +657,11 @@ update_again:
 	goto update_again;
 }
 
-int psql_write_buf( PGconn *conn, const int id, const char *path, const char *buf, const off_t offset, const size_t len, int verbose )
+int psql_write_buf( PGconn *conn, const int64_t id, const char *path, const char *buf, const off_t offset, const size_t len, int verbose )
 {
 	PgDataInfo info;
 	int res;
-	unsigned int block_no;
+	int64_t block_no;
 	
 	if( len == 0 ) return 0;
 	
@@ -666,7 +673,7 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 		return res;
 	}
 	if( res != info.from_len ) {
-		syslog( LOG_ERR, "Partial write in file '%s' in first block '%d' (%u instead of %u octets)",
+		syslog( LOG_ERR, "Partial write in file '%s' in first block '%"PRIi64"' (%u instead of %u octets)",
 			path, info.from_block, res, (unsigned int)info.from_len );
 		return -EIO;
 	}
@@ -685,7 +692,7 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 			return res;
 		}
 		if( res != STANDARD_BLOCK_SIZE ) {
-			syslog( LOG_ERR, "Partial write in file '%s' in block '%d' (%u instead of %u octets)",
+			syslog( LOG_ERR, "Partial write in file '%s' in block '%"PRIi64"' (%u instead of %u octets)",
 				path, block_no, res, STANDARD_BLOCK_SIZE );
 			return -EIO;
 		}
@@ -698,7 +705,7 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 		return res;
 	}
 	if( res != info.to_len ) {
-		syslog( LOG_ERR, "Partial write in file '%s' in last block '%d' (%u instead of %u octets)",
+		syslog( LOG_ERR, "Partial write in file '%s' in last block '%"PRIi64"' (%u instead of %u octets)",
 			path, block_no, res, (unsigned int)info.to_len );
 		return -EIO;
 	}
@@ -706,13 +713,13 @@ int psql_write_buf( PGconn *conn, const int id, const char *path, const char *bu
 	return len;
 }
 
-int psql_truncate( PGconn *conn, const int id, const char *path, const off_t offset )
+int psql_truncate( PGconn *conn, const int64_t id, const char *path, const off_t offset )
 {
 	PgDataInfo info;
 	int res;
 	PgMeta meta;
-	int param1;
-	int param2;
+	int64_t param1;
+	int64_t param2;
 	const char *values[2] = { (const char *)&param1, (const char *)&param2 };
 	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
 	int binary[2] = { 1, 1 };
@@ -725,10 +732,10 @@ int psql_truncate( PGconn *conn, const int id, const char *path, const off_t off
 	
 	info = compute_block_info( 0, offset );
 	
-	param1 = htonl( id );
-	param2 = htonl( info.to_block );
+	param1 = htobe64( id );
+	param2 = htobe64( info.to_block );
 	
-	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::integer AND block_no>$2::integer",
+	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::bigint AND block_no>$2::bigint",
 		2, NULL, values, lengths, binary, 1 );
 	
 	if( PQresultStatus( dbres ) != PGRES_COMMAND_OK ) {
@@ -739,6 +746,8 @@ int psql_truncate( PGconn *conn, const int id, const char *path, const off_t off
 	}
 	
 	PQclear( dbres );
+	
+	// TODO: pad rest of now last block
 	
 	meta.size = offset;
 	
@@ -798,13 +807,13 @@ int psql_rollback( PGconn *conn )
 	return 0;
 }
 
-int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, const int to_parent_id, const char *rename_to, const char *from, const char *to )
+int psql_rename( PGconn *conn, const int64_t from_id, const int64_t from_parent_id, const int64_t to_parent_id, const char *rename_to, const char *from, const char *to )
 {
 	PgMeta from_parent_meta;
 	PgMeta to_parent_meta;
-	int id;
-	int param1 = htonl( to_parent_id );
-	int param3 = htonl( from_id );
+	int64_t id;
+	int64_t param1 = htobe64( to_parent_id );
+	int64_t param3 = htobe64( from_id );
 	const char *values[3] = { (const char *)&param1, rename_to, (const char *)&param3 };
 	int lengths[3] = { sizeof( param1 ), strlen( rename_to ), sizeof( param3 ) };
 	int binary[3] = { 1, 0, 1 };
@@ -816,7 +825,7 @@ int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, cons
 	}
 	
 	if( !S_ISDIR( from_parent_meta.mode ) ) {
-		syslog( LOG_ERR, "Expecting parent with id '%d' of '%s' (id '%d') to be a directory in psql_rename, but mode is '%o'!",
+		syslog( LOG_ERR, "Expecting parent with id '%"PRIi64"' of '%s' (id '%"PRIi64"') to be a directory in psql_rename, but mode is '%o'!",
 			from_parent_id, from, from_id, from_parent_meta.mode );
 		return -EIO;
 	}
@@ -827,12 +836,12 @@ int psql_rename( PGconn *conn, const int from_id, const int from_parent_id, cons
 	}
 
 	if( !S_ISDIR( to_parent_meta.mode ) ) {
-		syslog( LOG_ERR, "Expecting parent with id '%d' of '%s' to be a directory in psql_rename, but mode is '%o'!",
+		syslog( LOG_ERR, "Expecting parent with id '%"PRIi64"' of '%s' to be a directory in psql_rename, but mode is '%o'!",
 			to_parent_id, to, to_parent_meta.mode );
 		return -EIO;
 	}
 	
-	res = PQexecParams( conn, "UPDATE dir SET parent_id=$1::integer, name=$2::varchar WHERE id=$3::integer",
+	res = PQexecParams( conn, "UPDATE dir SET parent_id=$1::bigint, name=$2::varchar WHERE id=$3::bigint",
 		3, NULL, values, lengths, binary, 1 );
 
 	if( PQresultStatus( res ) != PGRES_COMMAND_OK ) {
