@@ -65,12 +65,12 @@
 %define sles 1
 %endif
 
-Summary: PgFuse stores files in a PostgreSQL database using the FUSE API.
+Summary: Stores files in a PostgreSQL database using the FUSE API
 Name: pgfuse
 Version: 0.0.1
 Release: 0.1
 License: GPLv3
-Group: System Environment/Filesystems
+Group: System/Filesystems
 
 Source: %{name}_%{version}.tar.gz
 
@@ -118,8 +118,6 @@ Requires: fuse >= 2.6
 %if ! 0%{?opensuse_bs}
 Distribution: %{dist}
 %endif
-
-Packager: Andreas Baumann <abaumann@yahoo.com>
 
 %description
 PgFuse stores a whole filesystem in a set of database tables in a
