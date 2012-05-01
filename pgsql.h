@@ -70,11 +70,11 @@ int psql_rollback( PGconn *conn );
 
 /* --- the filesystem functions --- */
 
-int psql_path_to_id( PGconn *conn, const char *path );
+int64_t psql_path_to_id( PGconn *conn, const char *path );
 
-int psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *meta );
+int64_t psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *meta );
 
-int psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta );
+int64_t psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta );
 
 int psql_write_meta( PGconn *conn, const int64_t id, const char *path, PgMeta meta );
 

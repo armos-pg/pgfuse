@@ -26,6 +26,8 @@
 #include <sys/types.h>		/* size_t */
 #include <sys/stat.h>		/* mode_t */
 #include <values.h>		/* for INT_MAX */
+#include <stdint.h>		/* for uint64_t */
+#include <inttypes.h>		/* for PRIxxx macros */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -151,7 +153,7 @@ static void pgfuse_destroy( void *userdata )
 static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	PGconn *conn;
 	
@@ -172,11 +174,12 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id for %s '%s' is %"PRIi64", thread #%u",
 			S_ISDIR( meta.mode ) ? "dir" : "file", path, id,
 			THREAD_ID );
 	}
 	
+	/* TODO: check bits of inodes of the kernel */
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
 	stbuf->st_mode = meta.mode;
@@ -196,7 +199,7 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 static int pgfuse_getattr( const char *path, struct stat *stbuf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	PGconn *conn;
 
@@ -217,11 +220,12 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	}
 
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for %s '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id for %s '%s' is %"PRIi64", thread #%u",
 			S_ISDIR( meta.mode ) ? "dir" : "file", path, id,
 			THREAD_ID );
 	}
 	
+	/* TODO: check bits of inodes of the kernel */
 	stbuf->st_ino = id;
 	stbuf->st_blocks = 0;
 	stbuf->st_mode = meta.mode;
@@ -279,13 +283,13 @@ static char *flags_to_string( int flags )
 static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	char *copy_path;
 	char *parent_path;
 	char *new_file;
-	int parent_id;
-	int res;
+	int64_t parent_id;
+	int64_t res;
 	PGconn *conn;
 
 	if( data->verbose ) {
@@ -311,7 +315,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	
 	if( id >= 0 ) {
 		if( data->verbose ) {
-			syslog( LOG_DEBUG, "Id for dir '%s' is %d, thread #%u",
+			syslog( LOG_DEBUG, "Id for dir '%s' is %"PRIi64", thread #%u",
 				path, id, THREAD_ID );
 		}
 		
@@ -344,7 +348,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for new file '%s' in dir '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Parent_id for new file '%s' in dir '%s' is %"PRIi64", thread #%u",
 			path, parent_path, parent_id, THREAD_ID );
 	}
 	
@@ -382,7 +386,7 @@ static int pgfuse_create( const char *path, mode_t mode, struct fuse_file_info *
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for new file '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id for new file '%s' is %"PRIi64", thread #%u",
 			path, id, THREAD_ID );
 	}
 	
@@ -400,8 +404,8 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PgMeta meta;
-	int id;
-	int res;
+	int64_t id;
+	int64_t res;
 	PGconn *conn;
 
 	if( data->verbose ) {
@@ -421,7 +425,7 @@ static int pgfuse_open( const char *path, struct fuse_file_info *fi )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id for file '%s' to open is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id for file '%s' to open is %"PRIi64", thread #%u",
 			path, id, THREAD_ID );
 	}
 		
@@ -511,7 +515,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	char *copy_path;
 	char *parent_path;
 	char *new_dir;
-	int parent_id;
+	int64_t parent_id;
 	int res;
 	PgMeta meta;
 	PGconn *conn;
@@ -550,7 +554,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Parent_id for new dir '%s' is %"PRIi64", thread #%u",
 			path, parent_id, THREAD_ID );
 	}
 	
@@ -590,7 +594,7 @@ static int pgfuse_mkdir( const char *path, mode_t mode )
 static int pgfuse_rmdir( const char *path )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	int res;
 	PgMeta meta;
 	PGconn *conn;
@@ -614,7 +618,7 @@ static int pgfuse_rmdir( const char *path )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id of dir '%s' to be removed is %"PRIi64", thread #%u",
 			path, id, THREAD_ID );
 	}
 
@@ -637,7 +641,7 @@ static int pgfuse_rmdir( const char *path )
 static int pgfuse_unlink( const char *path )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	int res;
 	PgMeta meta;
 	PGconn *conn;
@@ -661,7 +665,7 @@ static int pgfuse_unlink( const char *path )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id of file '%s' to be removed is %"PRIi64", thread #%u",
 			path, id, THREAD_ID );
 	}
 
@@ -731,6 +735,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
                          off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int64_t tmp;
 	int res;
 	PgMeta meta;
 	PGconn *conn;
@@ -754,10 +759,10 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		return -EBADF;
 	}
 		
-	res = psql_read_meta( conn, fi->fh, path, &meta );
-	if( res < 0 ) {
+	tmp = psql_read_meta( conn, fi->fh, path, &meta );
+	if( tmp < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return res;
+		return tmp;
 	}
 	
 	if( offset + size > meta.size ) {
@@ -822,7 +827,7 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 static int pgfuse_truncate( const char* path, off_t offset )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	int res;
 	PGconn *conn;
@@ -847,7 +852,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Id of file '%s' to be truncated is %d, thread #%u",
+		syslog( LOG_DEBUG, "Id of file '%s' to be truncated is %"PRIi64", thread #%u",
 			path, id, THREAD_ID );
 	}
 
@@ -877,6 +882,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_info *fi )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
+	int64_t id;
 	int res;
 	PgMeta meta;
 	PGconn *conn;
@@ -895,10 +901,10 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 		return -EBADF;
 	}
 	
-	res = psql_read_meta( conn, fi->fh, path, &meta );
-	if( res < 0 ) {
+	id = psql_read_meta( conn, fi->fh, path, &meta );
+	if( id < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return res;
+		return id;
 	}
 
 	if( data->read_only ) {
@@ -960,7 +966,7 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 static int pgfuse_chmod( const char *path, mode_t mode )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;	
 	int res;
 	PGconn *conn;
@@ -1001,7 +1007,7 @@ static int pgfuse_chmod( const char *path, mode_t mode )
 static int pgfuse_chown( const char *path, uid_t uid, gid_t gid )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;	
 	int res;
 	PGconn *conn;
@@ -1046,9 +1052,9 @@ static int pgfuse_symlink( const char *from, const char *to )
 	char *copy_to;
 	char *parent_path;
 	char *symlink;
-	int parent_id;
+	int64_t parent_id;
 	int res;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	PGconn *conn;
 
@@ -1080,7 +1086,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 	}
 	
 	if( data->verbose ) {
-		syslog( LOG_DEBUG, "Parent_id for symlink '%s' is %d, thread #%u",
+		syslog( LOG_DEBUG, "Parent_id for symlink '%s' is %"PRIi64", thread #%u",
 			to, parent_id, THREAD_ID );
 	}
 	
@@ -1103,8 +1109,8 @@ static int pgfuse_symlink( const char *from, const char *to )
 	meta.size = strlen( from );	/* size = length of path */
 	meta.mode = 0777 | S_IFLNK; 	/* symlinks have no modes per se */
 	/* TODO: use FUSE context */
-	meta.uid = geteuid( );
-	meta.gid = getegid( );
+	meta.uid = fuse_get_context( )->uid;
+	meta.gid = fuse_get_context( )->gid;
 	meta.ctime = now( );
 	meta.mtime = meta.ctime;
 	meta.atime = meta.ctime;
@@ -1148,13 +1154,13 @@ static int pgfuse_rename( const char *from, const char *to )
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 	PGconn *conn;
 	int res;
-	int from_id;
-	int to_id;
+	int64_t from_id;
+	int64_t to_id;
 	PgMeta from_meta;
 	PgMeta to_meta;
 	char *copy_to;
 	char *parent_path;
-	int to_parent_id;
+	int64_t to_parent_id;
 	PgMeta to_parent_meta;
 	char *rename_to;
 	
@@ -1244,7 +1250,7 @@ static int pgfuse_rename( const char *from, const char *to )
 static int pgfuse_readlink( const char *path, char *buf, size_t size )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;
 	int res;
 	PGconn *conn;
@@ -1288,7 +1294,7 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 static int pgfuse_utimens( const char *path, const struct timespec tv[2] )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-	int id;
+	int64_t id;
 	PgMeta meta;	
 	int res;
 	PGconn *conn;

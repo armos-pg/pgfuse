@@ -88,7 +88,7 @@ static PgDataInfo compute_block_info( off_t offset, size_t len )
 	return info;
 }
 
-int psql_path_to_id( PGconn *conn, const char *path )
+int64_t psql_path_to_id( PGconn *conn, const char *path )
 {
 	PGresult *res;
 	int idx;
@@ -156,7 +156,7 @@ int psql_path_to_id( PGconn *conn, const char *path )
 
 /* --- postgresql implementation --- */
 
-int psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *meta )
+int64_t psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *meta )
 {
 	PGresult *res;
 	int idx;
@@ -224,7 +224,7 @@ int psql_read_meta( PGconn *conn, const int64_t id, const char *path, PgMeta *me
 	return id;
 }
 
-int psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta )
+int64_t psql_read_meta_from_path( PGconn *conn, const char *path, PgMeta *meta )
 {
 	int id = psql_path_to_id( conn, path );
 	
@@ -321,7 +321,7 @@ int psql_read_buf( PGconn *conn, const int64_t id, const char *path, char *buf, 
 	char *dst;
 	PgMeta meta;
 	int size;	
-	int tmp;
+	int64_t tmp;
 	
 	tmp = psql_read_meta( conn, id, path, &meta );
 	if( tmp < 0 ) {
@@ -716,7 +716,7 @@ int psql_write_buf( PGconn *conn, const int64_t id, const char *path, const char
 int psql_truncate( PGconn *conn, const int64_t id, const char *path, const off_t offset )
 {
 	PgDataInfo info;
-	int res;
+	int64_t res;
 	PgMeta meta;
 	int64_t param1;
 	int64_t param2;
@@ -747,7 +747,7 @@ int psql_truncate( PGconn *conn, const int64_t id, const char *path, const off_t
 	
 	PQclear( dbres );
 	
-	// TODO: pad rest of now last block
+	/* TODO: pad rest of now last block */
 	
 	meta.size = offset;
 	
