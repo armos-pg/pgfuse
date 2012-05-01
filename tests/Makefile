@@ -4,7 +4,7 @@ PG_CONNINFO = ""
 
 CFLAGS += -I..
 
-test: testfsync testpgsql testtypes
+test: testfsync testpgsql testtypes testbigfile
 	psql < clean.sql
 	psql < ../schema.sql
 	test -d mnt || mkdir mnt
@@ -56,6 +56,9 @@ test: testfsync testpgsql testtypes
 	-dd if=/dev/zero of=mnt/trunc bs=512 count=10
 	-truncate --size 513 mnt/trunc
 	-ls -al mnt/trunc
+	# expect success, write a sparse big file
+	-./testbigfile
+	-ls -al mnt/testbigfile.data
 	# END: unmount FUSE file system
 	fusermount -u mnt
 
@@ -63,6 +66,7 @@ clean:
 	rm -f testfsync testfsync.o
 	rm -f testpgsql testpgsql.o
 	rm -f testtypes testtypes.o
+	rm -f testbigfile testbigfile.o
 	
 testfsync: testfsync.o
 	$(CC) -o testfsync testfsync.o
@@ -81,3 +85,9 @@ testtypes: testtypes.o
 
 testtypes.o: testtypes.c
 	$(CC) -c $(CFLAGS) -o testtypes.o testtypes.c
+
+testbigfile: testbigfile.o
+	$(CC) -o testbigfile testbigfile.o
+
+testbigfile.o: testbigfile.c
+	$(CC) -c $(CFLAGS) -o testbigfile.o testbigfile.c
