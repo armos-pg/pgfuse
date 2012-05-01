@@ -591,7 +591,7 @@ update_again:
 	/* small in the middle write, keep data on both sides */
 	} else if( offset > 0 && offset + len < STANDARD_BLOCK_SIZE ) {
 
-		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::integer AND block_no=$2::integer",
+		sprintf( sql, "UPDATE data set data = substring( data from %d for %d ) || $3::bytea || substring( data from %u for %u ) WHERE dir_id=$1::bigint AND block_no=$2::bigint",
 			1, (unsigned int)offset,
 			(unsigned int)offset + (unsigned int)len + 1, STANDARD_BLOCK_SIZE - ( (unsigned int)offset + (unsigned int)len ) );
 						
