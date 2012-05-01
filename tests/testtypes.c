@@ -14,7 +14,7 @@
 int main(void)
 {
     uint32_t uint32=0xffffFFFF;
-    uint64_t uint64=0xFFFFFFFFFFFFFFFF;
+    uint64_t uint64=0xFFFFFFFFFFFFFFFFLL;
     off_t offset=TYPE_MAX(off_t); /* Depends on _FILE_OFFSET_BITS */
     size_t size=TYPE_MAX(size_t); /* Depends on int size */
 
