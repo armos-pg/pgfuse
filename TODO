@@ -6,9 +6,13 @@ TODO list (in order of priority)
     per-user or root mounts? think about security
     here!
   - extended attributes
+  - how much access control is possible if not using default_permissions:
+    - group membership doesn't work (design limitation in FUSE)
+    - Selinux will not work because we can't assign parallel contexts,
+      maybe forcing a security context mount option is an option, but
+      so far the fuse mount helper doesn't pass the Selinux mount option
+      to the kernel
 - fill in st_nlink correctly
-- handle some wird cases with symlink renames, also test them
-- sort out synchronization issues, how much should we lock?
 - strategy for half-blocks, help PostgreSQL optimize disk usage
   of data in BYTEA columns. Try to support tails of growing files
   and tiny files (without padding to the block size)

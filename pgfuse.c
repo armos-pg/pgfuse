@@ -17,7 +17,7 @@
 
 #include <string.h>		/* for strdup, strlen, memset */
 #include <libgen.h>		/* for POSIX compliant basename */
-#include <unistd.h>		/* for exit, geteuid, getegid */
+#include <unistd.h>		/* for exit */
 #include <stdlib.h>		/* for EXIT_FAILURE, EXIT_SUCCESS */
 #include <stdio.h>		/* for fprintf */
 #include <stddef.h>		/* for offsetof */
