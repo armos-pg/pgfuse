@@ -18,7 +18,6 @@ int main(void)
     off_t offset=TYPE_MAX(off_t); /* Depends on _FILE_OFFSET_BITS */
     size_t size=TYPE_MAX(size_t); /* Depends on int size */
 
-    printf("native int bits%20"PRIu64" %16"PRIx32"\n", sizeof(int)*CHAR_BIT, UINT_MAX);
     printf("uint32_t max   %20"PRIu32" %16"PRIx32"\n"
            "uint64_t max   %20"PRIu64" %16"PRIx64"\n"
            "off_t max      %20jd %16jx\n" /* try PRIdMAX if %jd unsupported */
