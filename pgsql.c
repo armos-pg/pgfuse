@@ -570,7 +570,7 @@ static int psql_write_block( PGconn *conn, const size_t block_size, const int64_
 	
 	/* could actually be an assertion, as this can never happen */
 	if( offset + len > block_size ) {
-		syslog( LOG_ERR, "Got a too big block write for file '%s', block '%20"PRIi64"': %20jd + %20zu > %d!",
+		syslog( LOG_ERR, "Got a too big block write for file '%s', block '%20"PRIi64"': %20jd + %20zu > %zu!",
 			path, block_no, offset, len, block_size );
 		return -EIO;
 	}
@@ -603,7 +603,7 @@ update_again:
 						
 	/* we should never get here */
 	} else {
-		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%"PRIi64"': offset: %jd, len: %zu, blocksize: %u",
+		syslog( LOG_ERR, "Unhandled write case for file '%s' in block '%"PRIi64"': offset: %jd, len: %zu, blocksize: %zu",
 			path, block_no, offset, len, block_size );
 		return -EIO;
 	}		
@@ -698,7 +698,7 @@ int psql_write_buf( PGconn *conn, const size_t block_size, const int64_t id, con
 			return res;
 		}
 		if( res != block_size ) {
-			syslog( LOG_ERR, "Partial write in file '%s' in block '%"PRIi64"' (%u instead of %u octets)",
+			syslog( LOG_ERR, "Partial write in file '%s' in block '%"PRIi64"' (%u instead of %zu octets)",
 				path, block_no, res, block_size );
 			return -EIO;
 		}
