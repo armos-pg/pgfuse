@@ -1,9 +1,9 @@
 CC=gcc
 
 # for debugging
-#CFLAGS = -Wall -Werror -g -O0 -pthread
+CFLAGS = -Wall -Werror -g -O0 -pthread
 # for releasing
-CFLAGS = -Wall -O2
+#CFLAGS = -Wall -O2
 
 # redhat has libpq-fe.h and fuse.h in /usr/include, ok
 

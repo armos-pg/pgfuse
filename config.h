@@ -1,3 +1,4 @@
+
 /*
     Copyright (C) 2012 Andreas Baumann <abaumann@yahoo.com>
 
@@ -24,7 +25,7 @@
 
 /* standard block size, that's the split size for the byta column in data */
 
-#define STANDARD_BLOCK_SIZE	4096
+#define DEFAULT_BLOCK_SIZE	4096
 
 /* maximum length of a filename , rather arbitrary choice */
 

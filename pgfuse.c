@@ -52,6 +52,7 @@ typedef struct PgFuseData {
 	PgConnPool pool;	/* the database pool to operate on (multi-thread only) */
 	int read_only;		/* whether the mount point is read-only */
 	int multi_threaded;	/* whether we run multi-threaded */
+	size_t block_size;	/* block size to use for storage of data in bytea fields */
 } PgFuseData;
 
 /* --- timestamp helpers --- */
@@ -184,8 +185,8 @@ static int pgfuse_fgetattr( const char *path, struct stat *stbuf, struct fuse_fi
 	stbuf->st_blocks = 0;
 	stbuf->st_mode = meta.mode;
 	stbuf->st_size = meta.size;
-	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
-	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
+	stbuf->st_blksize = data->block_size;
+	stbuf->st_blocks = ( meta.size + data->block_size - 1 ) / data->block_size;
 	/* TODO: set correctly from table */
 	stbuf->st_nlink = 1;
 	stbuf->st_uid = meta.uid;
@@ -230,8 +231,8 @@ static int pgfuse_getattr( const char *path, struct stat *stbuf )
 	stbuf->st_blocks = 0;
 	stbuf->st_mode = meta.mode;
 	stbuf->st_size = meta.size;
-	stbuf->st_blksize = STANDARD_BLOCK_SIZE;
-	stbuf->st_blocks = ( meta.size + STANDARD_BLOCK_SIZE - 1 ) / STANDARD_BLOCK_SIZE;
+	stbuf->st_blksize = data->block_size;
+	stbuf->st_blocks = ( meta.size + data->block_size - 1 ) / data->block_size;
 	/* TODO: set correctly from table */
 	stbuf->st_nlink = 1;
 	stbuf->st_uid = meta.uid;
@@ -769,7 +770,7 @@ static int pgfuse_write( const char *path, const char *buf, size_t size,
 		meta.size = offset + size;
 	}
 	
-	res = psql_write_buf( conn, fi->fh, path, buf, offset, size, data->verbose );
+	res = psql_write_buf( conn, data->block_size, fi->fh, path, buf, offset, size, data->verbose );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -813,7 +814,7 @@ static int pgfuse_read( const char *path, char *buf, size_t size,
 		return -EBADF;
 	}
 
-	res = psql_read_buf( conn, fi->fh, path, buf, offset, size, data->verbose );
+	res = psql_read_buf( conn, data->block_size, fi->fh, path, buf, offset, size, data->verbose );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -861,7 +862,7 @@ static int pgfuse_truncate( const char* path, off_t offset )
 		return -EROFS;
 	}
 
-	res = psql_truncate( conn, id, path, offset );
+	res = psql_truncate( conn, data->block_size, id, path, offset );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -912,7 +913,7 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 		return -EROFS;
 	}
 	
-	res = psql_truncate( conn, fi->fh, path, offset );
+	res = psql_truncate( conn, data->block_size, fi->fh, path, offset );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -944,8 +945,8 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	
 	memset( buf, 0, sizeof( struct statvfs ) );
 	
-	buf->f_bsize = STANDARD_BLOCK_SIZE;
-	buf->f_frsize = STANDARD_BLOCK_SIZE;
+	buf->f_bsize = data->block_size;
+	buf->f_frsize = data->block_size;
 	/* Note: it's hard to tell how much space is left in the database
 	 * and how big it is
 	 */
@@ -1129,7 +1130,7 @@ static int pgfuse_symlink( const char *from, const char *to )
 		return id;
 	}
 
-	res = psql_write_buf( conn, id, to, from, 0, strlen( from ), data->verbose );
+	res = psql_write_buf( conn, data->block_size, id, to, from, 0, strlen( from ), data->verbose );
 	if( res < 0 ) {
 		free( copy_to );
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -1278,7 +1279,7 @@ static int pgfuse_readlink( const char *path, char *buf, size_t size )
 		return -ENOMEM;
 	}
 	
-	res = psql_read_buf( conn, id, path, buf, 0, meta.size, data->verbose );
+	res = psql_read_buf( conn, data->block_size, id, path, buf, 0, meta.size, data->verbose );
 	if( res < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return res;
@@ -1382,6 +1383,7 @@ typedef struct PgFuseOptions {
 	char *mountpoint;	/* where we mount the virtual filesystem */
 	int read_only;		/* whether to mount read-only */
 	int multi_threaded;	/* whether we run multi-threaded */
+	size_t block_size;	/* block size to use to store data in BYTEA fields */
 } PgFuseOptions;
 
 #define PGFUSE_OPT( t, p, v ) { t, offsetof( PgFuseOptions, p ), v }
@@ -1394,6 +1396,7 @@ enum {
 
 static struct fuse_opt pgfuse_opts[] = {
 	PGFUSE_OPT( 	"ro",		read_only, 1 ),
+	PGFUSE_OPT(     "blocksize=%d",	block_size, DEFAULT_BLOCK_SIZE ),
 	FUSE_OPT_KEY( 	"-h",		KEY_HELP ),
 	FUSE_OPT_KEY( 	"--help",	KEY_HELP ),
 	FUSE_OPT_KEY( 	"-v",		KEY_VERBOSE ),
@@ -1469,6 +1472,7 @@ static void print_usage( char* progname )
 		"\n"
 		"PgFuse options:\n"
 		"    ro                     mount filesystem read-only, do not change data in database\n"
+		"    blocksize=<bytes>      block size to use for storage of data\n"
 		"\n",
 		progname
 	);
@@ -1487,6 +1491,7 @@ int main( int argc, char *argv[] )
 	
 	memset( &pgfuse, 0, sizeof( pgfuse ) );
 	pgfuse.multi_threaded = 1;
+	pgfuse.block_size = DEFAULT_BLOCK_SIZE;
 	
 	if( fuse_opt_parse( &args, &pgfuse, pgfuse_opts, pgfuse_opt_proc ) == -1 ) {
 		if( pgfuse.print_help ) {
@@ -1528,6 +1533,7 @@ int main( int argc, char *argv[] )
 	 * standard for PostgreSQL 8.4 or newer). Otherwise bail out
 	 * currently..
 	 */
+
 	value = PQparameterStatus( conn, "integer_datetimes" );
 	if( value == NULL ) {
 		fprintf( stderr, "PQ param integer_datetimes not available?\n"
@@ -1542,10 +1548,23 @@ int main( int argc, char *argv[] )
 		PQfinish( conn );
 		return 1;
 	}
-		
-	PQfinish( conn );
-	
+
 	openlog( basename( argv[0] ), LOG_PID, LOG_USER );	
+		
+	/* Compare blocksize given as parameter and blocksize in database */
+	res = psql_get_block_size( conn, pgfuse.block_size );
+	if( res < 0 ) {
+		PQfinish( conn );
+		return 1;
+	}
+	if( res != pgfuse.block_size ) {
+		fprintf( stderr, "Blocksize parameter mismatch (is '%zu', in database we have '%zu') taking the later one!\n",
+			pgfuse.block_size, (size_t)res );
+		PQfinish( conn );
+		return 1;
+	}
+	
+	PQfinish( conn );
 	
 	memset( &userdata, 0, sizeof( PgFuseData ) );
 	userdata.conninfo = pgfuse.conninfo;
@@ -1553,8 +1572,11 @@ int main( int argc, char *argv[] )
 	userdata.verbose = pgfuse.verbose;
 	userdata.read_only = pgfuse.read_only;
 	userdata.multi_threaded = pgfuse.multi_threaded;
+	userdata.block_size = pgfuse.block_size;
 	
 	res = fuse_main( args.argc, args.argv, &pgfuse_oper, &userdata );
+	
+	closelog( );
 	
 	exit( res );
 }

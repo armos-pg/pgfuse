@@ -18,7 +18,7 @@ CREATE TABLE dir (
 CREATE TABLE data (
 	dir_id BIGINT,
 	block_no BIGINT NOT NULL DEFAULT 0,
-	data BYTEA NOT NULL DEFAULT repeat(E'\\000',4096)::bytea,
+	data BYTEA,
 	PRIMARY KEY( dir_id, block_no ),
 	FOREIGN KEY( dir_id ) REFERENCES dir( id )
 );
@@ -34,13 +34,6 @@ CREATE INDEX dir_parent_id_idx ON dir( parent_id );
 -- 16384 == S_IFDIR (S_IFDIR)
 -- TODO: should be created by the program after checking the OS
 -- it is running on (for full POSIX compatibility)
-
--- make sure 'dir' entries always get a first block in the 'data'
--- table
-CREATE OR REPLACE RULE "dir_insert" AS ON
-	INSERT TO dir WHERE NEW.mode & 16384 = 0
-	DO ALSO INSERT INTO data( dir_id )
-	VALUES ( currval( 'dir_id_seq' ) );
 
 -- garbage collect deleted file entries, delete all blocks in 'data'
 CREATE OR REPLACE RULE "dir_remove" AS ON

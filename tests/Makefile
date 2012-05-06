@@ -2,13 +2,15 @@ include ../inc.mak
 
 PG_CONNINFO = ""
 
+BLOCKSIZE = 4096
+
 CFLAGS += -I..
 
 test: testfsync testpgsql testtypes testbigfile
 	psql < clean.sql
 	psql < ../schema.sql
 	test -d mnt || mkdir mnt
-	../pgfuse -s -v "$(PG_CONNINFO)" mnt
+	../pgfuse -o blocksize=$(BLOCKSIZE) -s -v "$(PG_CONNINFO)" mnt
 	mount | grep pgfuse
 	# expect success for making directories
 	-mkdir mnt/dir
