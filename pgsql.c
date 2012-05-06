@@ -730,6 +730,7 @@ int psql_truncate( PGconn *conn, const size_t block_size, const int64_t id, cons
 	int lengths[2] = { sizeof( param1 ), sizeof( param2 ) };
 	int binary[2] = { 1, 1 };
 	PGresult *dbres;
+	char sql[256];
 	
 	res = psql_read_meta( conn, id, path, &meta );
 	if( res < 0 ) {
@@ -741,6 +742,7 @@ int psql_truncate( PGconn *conn, const size_t block_size, const int64_t id, cons
 	param1 = htobe64( id );
 	param2 = htobe64( info.to_block );
 	
+	/* delete superflous blocks */
 	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::bigint AND block_no>$2::bigint",
 		2, NULL, values, lengths, binary, 1 );
 	
@@ -753,7 +755,32 @@ int psql_truncate( PGconn *conn, const size_t block_size, const int64_t id, cons
 	
 	PQclear( dbres );
 	
-	/* TODO: pad rest of now last block */
+	/* pad right part of now last block */
+	sprintf( sql, "UPDATE data SET data = substring( data from 1 for %zd ) || "
+			"repeat(E'\\\\000',%zu)::bytea WHERE dir_id=$1::bigint AND block_no=$2::bigint",
+			info.to_len,
+			block_size - info.to_len );
+
+	param1 = htobe64( id );
+	param2 = htobe64( info.to_block );			
+
+	dbres = PQexecParams( conn, sql, 2, NULL, values, lengths, binary, 1 );
+
+	if( PQresultStatus( dbres ) != PGRES_COMMAND_OK ) {
+		syslog( LOG_ERR, "Error in psql_truncate for file '%s' while padding block '%jd' after size '%jd': %s",
+			path, info.to_block, offset, PQerrorMessage( conn ) );
+		PQclear( dbres );
+		return -EIO;
+	}
+	
+	if( atoi( PQcmdTuples( dbres ) ) != 1 ) {
+		syslog( LOG_ERR, "Expecting COUNT(1) in psql_truncate in file '%s' and padded block '%jd'. Data consistency problems!",
+			path, info.to_block );
+		PQclear( dbres );
+		return -EIO;
+	}
+
+	PQclear( dbres );
 	
 	meta.size = offset;
 	
