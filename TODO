@@ -16,8 +16,6 @@ TODO list (in order of priority)
 - strategy for half-blocks, help PostgreSQL optimize disk usage
   of data in BYTEA columns. Try to support tails of growing files
   and tiny files (without padding to the block size)
-- make block size detectable per file (there is no reason why
-  different files should not have a different block size)
 - establish self-containment (with respect to
   a temporarily unavailable Postgresql server)
 - minimal SELinux support, i.e. one fix security context
