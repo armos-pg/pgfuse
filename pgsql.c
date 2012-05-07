@@ -82,6 +82,9 @@ static PgDataInfo compute_block_info( size_t block_size, off_t offset, size_t le
 	
 	if( info.to_len == 0 ) {
 		info.to_block--;
+		if( info.to_block < 0 ) {
+			info.to_block = 0;
+		}
 		info.to_len = block_size;
 	}
 	
