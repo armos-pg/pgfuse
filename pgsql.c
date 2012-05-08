@@ -745,6 +745,8 @@ int psql_truncate( PGconn *conn, const size_t block_size, const int64_t id, cons
 	param1 = htobe64( id );
 	param2 = htobe64( info.to_block );
 	
+	syslog( LOG_ERR, "TRUNC: %"PRIu64", block %jd", id, info.to_block );
+	
 	/* delete superflous blocks */
 	dbres = PQexecParams( conn, "DELETE FROM data WHERE dir_id=$1::bigint AND block_no>$2::bigint",
 		2, NULL, values, lengths, binary, 1 );
@@ -776,9 +778,9 @@ int psql_truncate( PGconn *conn, const size_t block_size, const int64_t id, cons
 		return -EIO;
 	}
 	
-	if( atoi( PQcmdTuples( dbres ) ) != 1 ) {
-		syslog( LOG_ERR, "Expecting COUNT(1) in psql_truncate in file '%s' and padded block '%jd'. Data consistency problems!",
-			path, info.to_block );
+	if( atoi( PQcmdTuples( dbres ) ) > 1 ) {
+		syslog( LOG_ERR, "Expecting COUNT(0/1) in psql_truncate in file '%s' and padded block '%jd'. Data consistency problems (%s)!",
+			path, info.to_block, sql );
 		PQclear( dbres );
 		return -EIO;
 	}
