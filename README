@@ -17,7 +17,7 @@ Yes, I know what happens if you store files in a database (in respect to
 drop of efficiency and incremental backups for instance). :-)
 
 Nevertheless, there are special situations, where a filesystem in a database
-is usefull. With FUSE this is also rather simple to write.
+is useful. With FUSE this is also rather simple to write.
 
 The reason I wrote one was a project with lots of data on a ReiserFS (at
 least in 2001, this was), which was more or less immutable and should be 
