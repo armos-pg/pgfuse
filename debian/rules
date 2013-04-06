@@ -61,7 +61,7 @@ install: build
 
 	# main package
 	$(MAKE) install $(PGFUSE_PARAMS) \
-		DESTDIR=/usr/src/packages/BUILD/debian/wolframe
+		DESTDIR=/usr/src/packages/BUILD/debian/pgfuse
 
 	# --- end custom part for installing
 
