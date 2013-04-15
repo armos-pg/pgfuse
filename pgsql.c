@@ -928,3 +928,54 @@ size_t psql_get_block_size( PGconn *conn, const size_t block_size )
 	return db_block_size;
 }
 
+size_t psql_get_fs_used( PGconn *conn )
+{
+	PGresult *res;
+	char *data;
+	size_t fs_used;
+	        res = PQexec( conn, "SELECT SUM(size) FROM dir;" );
+        if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+                syslog( LOG_ERR, "Error in psql_get_fs_used: %s", PQerrorMessage( conn ) );
+                PQclear( res );
+                return -EIO;
+        }
+
+        /* empty, this is ok, any blocksize acceptable after initialization */
+        if( PQntuples( res ) == 0 ) {
+                PQclear( res );
+                return 0;
+        }
+
+        data = PQgetvalue( res, 0, 0 );
+        fs_used = atol( data );
+
+        PQclear( res );
+
+        return fs_used;
+}
+
+size_t psql_get_fs_free( PGconn *conn )
+{
+        PGresult *res;
+        char *data;
+        size_t fs_free;
+                res = PQexec( conn, "SELECT db_disk_free();" );
+        if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+                syslog( LOG_ERR, "Error in psql_get_fs_free: %s", PQerrorMessage( conn ) );
+                PQclear( res );
+                return -EIO;
+        }
+
+        /* empty, this is ok, any blocksize acceptable after initialization */
+        if( PQntuples( res ) == 0 ) {
+                PQclear( res );
+                return -EIO;
+        }
+
+        data = PQgetvalue( res, 0, 0 );
+        fs_free = atol( data );
+
+        PQclear( res );
+
+        return fs_free;
+}

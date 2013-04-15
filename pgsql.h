@@ -98,4 +98,8 @@ int psql_rename( PGconn *conn, const int64_t from_id, const int64_t from_parent_
 
 size_t psql_get_block_size( PGconn *conn, const size_t block_size );
 
+size_t psql_get_fs_used( PGconn *conn );
+
+size_t psql_get_fs_free( PGconn *conn );
+
 #endif

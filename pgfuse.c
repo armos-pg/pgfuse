@@ -936,6 +936,10 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
 
+	PGconn *conn;
+
+	int64_t fs_size, fs_used, fs_free, fs_avail;
+
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Statfs called on '%s', thread #%u",
 			data->mountpoint, THREAD_ID );
@@ -947,12 +951,41 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	
 	buf->f_bsize = data->block_size;
 	buf->f_frsize = data->block_size;
+
+	ACQUIRE( conn );
+        PSQL_BEGIN( conn );
+
+	fs_free = psql_get_fs_free( conn );
+
+	if( fs_free < 0 ) {
+		fs_free = INT_MAX;
+	} else {
+		fs_free = fs_free / data->block_size;
+		
+	};
+
+	fs_used = psql_get_fs_used( conn );
+	
+	if( fs_used < 0 ) {
+                PSQL_ROLLBACK( conn ); RELEASE( conn );
+		fs_used = INT_MAX;
+		fs_size = INT_MAX;
+		fs_free = INT_MAX;
+		fs_avail = INT_MAX;
+        } else {
+		fs_used = fs_used / data->block_size;
+		fs_size = fs_free + fs_used;
+		fs_avail = fs_free;
+	};
+	
+	PSQL_COMMIT( conn ); RELEASE( conn );
+
 	/* Note: it's hard to tell how much space is left in the database
 	 * and how big it is
 	 */
-	buf->f_blocks = INT_MAX;
-	buf->f_bfree = INT_MAX;
-	buf->f_bavail = INT_MAX;
+	buf->f_blocks = fs_size;
+	buf->f_bfree = fs_free;
+	buf->f_bavail = fs_avail;
 	buf->f_files = INT_MAX;
 	buf->f_ffree = INT_MAX;
 	buf->f_favail = INT_MAX;

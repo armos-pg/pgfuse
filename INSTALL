@@ -25,6 +25,10 @@ Installation
 * Initialize the database schema (as user using fuse)
 
     psql -U someuser somedb < schema.sql
+
+* Create special function (as PostgreSQL superuser)
+
+   psql somedb < function.sql
     
 * Mount the FUSE filesystem
 
