@@ -929,7 +929,7 @@ size_t psql_get_block_size( PGconn *conn, const size_t block_size )
 	return db_block_size;
 }
 
-size_t psql_get_fs_blocks_used( PGconn *conn )
+int64_t psql_get_fs_blocks_used( PGconn *conn )
 {
 	PGresult *res;
 	char *data;
@@ -942,7 +942,7 @@ size_t psql_get_fs_blocks_used( PGconn *conn )
                 return -EIO;
         }
 
-	/* we calculate the number of blocks occupied by all data entries
+	/* we calculate the number of blocks occuppied by all data entries
 	 * plus all "indoes" (in our case entries in dir),
 	 * more like a filesystem would do it. Returning blocks as this is
 	 * harder to overflow a size_t (in case it's 32-bit, modern
@@ -956,12 +956,12 @@ size_t psql_get_fs_blocks_used( PGconn *conn )
         return used;
 }
 
-size_t psql_get_fs_blocks_free( PGconn *conn )
+int64_t psql_get_fs_blocks_free( PGconn *conn )
 {
         return 9999;
 }
 
-size_t psql_get_fs_files_used( PGconn *conn )
+int64_t psql_get_fs_files_used( PGconn *conn )
 {
 	PGresult *res;
 	char *data;
@@ -982,7 +982,7 @@ size_t psql_get_fs_files_used( PGconn *conn )
         return used;
 }
 
-size_t psql_get_fs_files_free( PGconn *conn )
+int64_t psql_get_fs_files_free( PGconn *conn )
 {
         return 9999;
 }
