@@ -2,9 +2,65 @@ TODO list (in order of priority)
 ---------
 
 - integrate statfs patch:
+  - calculating the size:
+    a) virtual things like real blocks and inodes
+    b) select physical things in db:
+       http://www.postgresql.org/docs/current/interactive/functions-admin.html#FUNCTIONS-ADMIN-DBSIZE
   - Can't do this, as the db user must be underprivileged:
     show data_directory;
+    /var/lib/postgres/data
     ERROR:  must be superuser to examine "data_directory"
+    This is for objects in the default tablespace
+    1) get list of oids containing the data of the tables/indexes
+       SELECT oid FROM pg_class WHERE relname = 'dir' AND relkind = 'r';
+       select 'dir'::regclass::oid;
+    3) use default data dir or tablespace location to resolve the path
+       SELECT reltablespace FROM pg_class WHERE relname = 'dir' AND relkind = 'r';
+       => 0, means default tablespace of the database, so we have to ask
+       the database:
+       datname?
+       
+    
+       select datname,dattablespace from pg_database;
+       select spclocation from pg_tablespace where oid = 
+       >= 9.2  
+       select pg_tablespace_location('55025');
+       
+    other ways:
+
+       explicit tablespace in create table:
+   SELECT d.datname as "Name",
+       r.rolname as "Owner",
+       pg_catalog.pg_encoding_to_char(d.encoding) as "Encoding",
+       pg_catalog.shobj_description(d.oid, 'pg_database') as "Description",
+       t.spcname as "Tablespace"
+FROM pg_catalog.pg_database d
+  JOIN pg_catalog.pg_roles r ON d.datdba = r.oid
+  JOIN pg_catalog.pg_tablespace t on d.dattablespace = t.oid
+ORDER BY 1;
+
+
+    
+--    COALESCE(TS.spclocation, XS.spclocation, '') AS "location"
+    SELECT N.nspname || '.' || C.relname AS "relation",
+    CASE WHEN reltype = 0
+        THEN pg_size_pretty(pg_total_relation_size(C.oid)) || ' (index)'
+        ELSE pg_size_pretty(pg_total_relation_size(C.oid)) || ' (' ||  pg_size_pretty(pg_relation_size(C.oid)) || ' data)'
+    END AS "size (data)",
+    COALESCE(T.tablespace, I.tablespace, '') AS "tablespace"
+FROM pg_class C
+LEFT JOIN pg_namespace N ON  (N.oid = C.relnamespace)
+LEFT JOIN pg_tables T ON (T.tablename = C.relname)
+LEFT JOIN pg_indexes I ON (I.indexname = C.relname)
+LEFT JOIN pg_tablespace TS ON TS.spcname = T.tablespace
+LEFT JOIN pg_tablespace XS ON XS.spcname = I.tablespace
+WHERE nspname NOT IN ('pg_catalog','pg_toast','information_schema')
+ORDER BY pg_total_relation_size(C.oid) DESC;
+
+
+default case: 
+$PGDATA/base 
+
   - no Perl, Shell, Posix df dependency
 - handling of most file system metadata
   - ownership: how is this done depending on
