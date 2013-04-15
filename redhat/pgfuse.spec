@@ -50,8 +50,14 @@
 %endif
 %define fc17 0  
 %if 0%{?fedora_version} == 17
-%define dist fc16
-%define fc17 1   
+%define dist fc17
+%define fc17 1
+%define fedora 1
+%endif
+%define fc18 0  
+%if 0%{?fedora_version} == 18
+%define dist fc18
+%define fc18 1
 %define fedora 1
 %endif
 
