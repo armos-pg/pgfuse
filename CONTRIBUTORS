@@ -1,0 +1,3 @@
+Роман Бородин <maxxinpos@gmail.com>
+  contributed a first version of statfs total, used and free space,
+  adapted to drop the plperlu dependency. Changed some calculations.
