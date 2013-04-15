@@ -1,6 +1,11 @@
 TODO list (in order of priority)
 ---------
 
+- integrate statfs patch:
+  - Can't do this, as the db user must be underprivileged:
+    show data_directory;
+    ERROR:  must be superuser to examine "data_directory"
+  - no Perl, Shell, Posix df dependency
 - handling of most file system metadata
   - ownership: how is this done depending on
     per-user or root mounts? think about security

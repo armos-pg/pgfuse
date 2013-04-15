@@ -48,8 +48,6 @@ test: testfsync testpgsql testtypes testbigfile
 	-stat mnt/dir/dir4/bfile
 	-stat mnt/dir/dir4
 	-stat mnt/dir/dir4/dlink
-	# show filesystem stats (statvfs)
-	-stat -f mnt
 	# expect success, truncate a file (grow and shrink)
 	-touch mnt/trunc
 	-ls -al mnt/trunc
@@ -61,6 +59,11 @@ test: testfsync testpgsql testtypes testbigfile
 	# expect success, write a sparse big file
 	-./testbigfile
 	-ls -al mnt/testbigfile.data
+	# show filesystem stats (statvfs)
+	-stat -f mnt
+	# the more human readable output of statvfs
+	-df -h mnt
+	-df -i mnt
 	# END: unmount FUSE file system
 	fusermount -u mnt
 

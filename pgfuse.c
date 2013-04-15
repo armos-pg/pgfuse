@@ -938,61 +938,80 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 
 	PGconn *conn;
 
-	int64_t fs_size, fs_used, fs_free, fs_avail;
+	int64_t blocks_total, blocks_used, blocks_free, blocks_avail;
+	int64_t files_total, files_used, files_free, files_avail;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Statfs called on '%s', thread #%u",
 			data->mountpoint, THREAD_ID );
 	}
-	
-	/* Note: f_frsize, f_favail, f_fsid and f_flag are currently ignored by FUSE */
-	
+		
 	memset( buf, 0, sizeof( struct statvfs ) );
 	
-	buf->f_bsize = data->block_size;
-	buf->f_frsize = data->block_size;
-
 	ACQUIRE( conn );
         PSQL_BEGIN( conn );
 
-	fs_free = psql_get_fs_free( conn );
-
-	if( fs_free < 0 ) {
-		fs_free = INT_MAX;
-	} else {
-		fs_free = fs_free / data->block_size;
+	/* blocks */
+	
+	blocks_free = psql_get_fs_blocks_free( conn );
+	if( blocks_free < 0 ) {
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -blocks_free;
+	}
 		
-	};
-
-	fs_used = psql_get_fs_used( conn );
-	
-	if( fs_used < 0 ) {
+	blocks_used = psql_get_fs_blocks_used( conn );	
+	if( blocks_used < 0 ) {
                 PSQL_ROLLBACK( conn ); RELEASE( conn );
-		fs_used = INT_MAX;
-		fs_size = INT_MAX;
-		fs_free = INT_MAX;
-		fs_avail = INT_MAX;
-        } else {
-		fs_used = fs_used / data->block_size;
-		fs_size = fs_free + fs_used;
-		fs_avail = fs_free;
-	};
+		return -blocks_used;
+	}
+            
+	blocks_total = blocks_free + blocks_used;
+	blocks_avail = blocks_free;
 	
-	PSQL_COMMIT( conn ); RELEASE( conn );
+	/* inodes */
 
-	/* Note: it's hard to tell how much space is left in the database
-	 * and how big it is
-	 */
-	buf->f_blocks = fs_size;
-	buf->f_bfree = fs_free;
-	buf->f_bavail = fs_avail;
-	buf->f_files = INT_MAX;
-	buf->f_ffree = INT_MAX;
-	buf->f_favail = INT_MAX;
+	files_free = psql_get_fs_blocks_free( conn );
+	if( files_free < 0 ) {
+		PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -files_free;
+	}
+	
+	files_used = psql_get_fs_files_used( conn );
+	if( files_used < 0 ) {
+                PSQL_ROLLBACK( conn ); RELEASE( conn );
+		return -files_used;
+	}
+	
+	files_total = files_free + files_used;
+	files_avail = files_free;
+
+	if( data->verbose ) {
+		syslog( LOG_ERR, "Stats for '%s' are (%jd blocks total, %jd used, %jd free, "
+			"%jd files total, %jd files used, %jd files free, thread #%u",
+			data->mountpoint, 
+			blocks_total, blocks_used, blocks_free,
+			files_total, files_used, files_free,
+			THREAD_ID );
+	}
+	
+	/* fill statfs structure */
+	
+	/* Note: f_frsize, f_favail, f_fsid and f_flag are currently ignored by FUSE */
+	buf->f_bsize = data->block_size;
+	buf->f_frsize = data->block_size;
+	buf->f_blocks = blocks_total;
+	buf->f_bfree = blocks_free;
+	buf->f_bavail = blocks_avail;
+	buf->f_files = files_total;
+	buf->f_ffree = files_free;
+	buf->f_favail = files_avail;
+	buf->f_fsid =  0x4FE3A364;
 	if( data->read_only ) {
 		buf->f_flag |= ST_RDONLY;
 	}
 	buf->f_namemax = MAX_FILENAME_LENGTH;
+
+	PSQL_COMMIT( conn ); RELEASE( conn );
 	
 	return 0;
 }

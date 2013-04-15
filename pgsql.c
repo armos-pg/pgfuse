@@ -25,6 +25,7 @@
 #include <arpa/inet.h>		/* for htonl, ntohl */
 #include <stdint.h>		/* for uint64_t */
 #include <inttypes.h>		/* for PRIxxx macros */
+#include <values.h>		/* for INT_MAX */
 
 #include "endian.h"		/* for be64toh and htobe64 */
 
@@ -928,54 +929,61 @@ size_t psql_get_block_size( PGconn *conn, const size_t block_size )
 	return db_block_size;
 }
 
-size_t psql_get_fs_used( PGconn *conn )
+size_t psql_get_fs_blocks_used( PGconn *conn )
 {
 	PGresult *res;
 	char *data;
-	size_t fs_used;
-	        res = PQexec( conn, "SELECT SUM(size) FROM dir;" );
+	size_t used;
+	
+	res = PQexec( conn, "SELECT (SELECT COUNT(*) FROM data) + (SELECT COUNT(*) FROM dir)" );
         if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-                syslog( LOG_ERR, "Error in psql_get_fs_used: %s", PQerrorMessage( conn ) );
+                syslog( LOG_ERR, "Error in psql_get_fs_blocks_used: %s", PQerrorMessage( conn ) );
                 PQclear( res );
                 return -EIO;
         }
 
-        /* empty, this is ok, any blocksize acceptable after initialization */
-        if( PQntuples( res ) == 0 ) {
-                PQclear( res );
-                return 0;
-        }
-
+	/* we calculate the number of blocks occupied by all data entries
+	 * plus all "indoes" (in our case entries in dir),
+	 * more like a filesystem would do it. Returning blocks as this is
+	 * harder to overflow a size_t (in case it's 32-bit, modern
+	 * systems shouldn't care). It's slower though
+	 */
         data = PQgetvalue( res, 0, 0 );
-        fs_used = atol( data );
+        used = atoi( data );
 
         PQclear( res );
 
-        return fs_used;
+        return used;
 }
 
-size_t psql_get_fs_free( PGconn *conn )
+size_t psql_get_fs_blocks_free( PGconn *conn )
 {
-        PGresult *res;
-        char *data;
-        size_t fs_free;
-                res = PQexec( conn, "SELECT db_disk_free();" );
-        if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
-                syslog( LOG_ERR, "Error in psql_get_fs_free: %s", PQerrorMessage( conn ) );
-                PQclear( res );
-                return -EIO;
-        }
+        return 9999;
+}
 
-        /* empty, this is ok, any blocksize acceptable after initialization */
-        if( PQntuples( res ) == 0 ) {
+size_t psql_get_fs_files_used( PGconn *conn )
+{
+	PGresult *res;
+	char *data;
+	size_t used;
+	
+	res = PQexec( conn, "SELECT COUNT(*) FROM dir" );
+        if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+                syslog( LOG_ERR, "Error in psql_get_fs_files_used: %s", PQerrorMessage( conn ) );
                 PQclear( res );
                 return -EIO;
         }
 
         data = PQgetvalue( res, 0, 0 );
-        fs_free = atol( data );
+        used = atoi( data );
 
         PQclear( res );
 
-        return fs_free;
+        return used;
 }
+
+size_t psql_get_fs_files_free( PGconn *conn )
+{
+        return 9999;
+}
+
