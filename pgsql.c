@@ -933,8 +933,16 @@ int64_t psql_get_fs_blocks_used( PGconn *conn )
 {
 	PGresult *res;
 	char *data;
-	size_t used;
+	int64_t used;
 	
+	/* we calculate the number of blocks occuppied by all data entries
+	 * plus all "indoes" (in our case entries in dir),
+	 * more like a filesystem would do it. Returning blocks as this is
+	 * harder to overflow a size_t (in case it's 32-bit, modern
+	 * systems shouldn't care). It's not so fast though, otherwise we
+	 * must consider a 'stats' table which is periodically updated
+	 * (not constantly in order to avoid a hot-spot in the database!)
+	 */
 	res = PQexec( conn, "SELECT (SELECT COUNT(*) FROM data) + (SELECT COUNT(*) FROM dir)" );
         if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
                 syslog( LOG_ERR, "Error in psql_get_fs_blocks_used: %s", PQerrorMessage( conn ) );
@@ -942,12 +950,6 @@ int64_t psql_get_fs_blocks_used( PGconn *conn )
                 return -EIO;
         }
 
-	/* we calculate the number of blocks occuppied by all data entries
-	 * plus all "indoes" (in our case entries in dir),
-	 * more like a filesystem would do it. Returning blocks as this is
-	 * harder to overflow a size_t (in case it's 32-bit, modern
-	 * systems shouldn't care). It's slower though
-	 */
         data = PQgetvalue( res, 0, 0 );
         used = atoi( data );
 
@@ -956,16 +958,148 @@ int64_t psql_get_fs_blocks_used( PGconn *conn )
         return used;
 }
 
-int64_t psql_get_fs_blocks_free( PGconn *conn )
+static int get_default_tablespace( PGconn *conn, int verbose )
 {
-        return 9999;
+	PGresult *res;
+	char *data;
+	int oid;
+	
+	res = PQexec( conn, "select dattablespace::int4 from pg_database where datname=current_database( )" );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in get_default_tablespace: %s", PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	data = PQgetvalue( res, 0, 0 );
+	oid = atoi( data );
+
+	if( verbose ) {
+		syslog( LOG_DEBUG, "Free blocks calculation, seen default tablespace is OID %d", oid );
+	}
+
+	PQclear( res );
+	
+	return oid;
+}
+
+static char *get_tablespace_location( PGconn *conn, const int oid, int verbose )
+{
+	PGresult *res;
+	int param1 = htonl( oid );
+	const char *values[1] = { (const char *)&param1 };
+	int lengths[1] = { sizeof( param1 ) };
+	int binary[1] = { 1 };
+	char *data;
+	int version;
+	
+	version = PQserverVersion( conn );
+	if( version >= 90200 ) {
+		res = PQexecParams( conn, "select pg_tablespace_location($1)",
+			1, NULL, values, lengths, binary, 1 );
+	} else {
+		res = PQexecParams( conn, "select spclocation from pg_tablespace where oid = $1",
+			1, NULL, values, lengths, binary, 1 );
+	}
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in get_tablespace_location for OID %d: %s", oid, PQerrorMessage( conn ) );
+		PQclear( res );
+		return NULL;
+	}
+	
+	data = strdup( PQgetvalue( res, 0, 0 ) );
+
+	PQclear( res );
+	
+	return data;
+}
+
+int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose )
+{
+	PGresult *res;
+	char *data;
+	int i;
+	int nof_oids;
+	int oid[MAX_TABLESPACE_OIDS];
+	char *location[MAX_TABLESPACE_OIDS];
+	
+	/* Get a list of oids containing the tablespaces of PgFuse tables and indexes */
+	res = PQexec( conn, "select distinct reltablespace::int4 FROM pg_class WHERE relname in ( 'dir', 'data', 'data_dir_id_idx', 'data_block_no_idx', 'dir_parent_id_idx' )" );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error in psql_get_fs_blocks_free: %s", PQerrorMessage( conn ) );
+		PQclear( res );
+		return -EIO;
+	}
+	
+	/* weird, no tablespaces? There is something wrong here, bail out */
+	if( PQntuples( res ) == 0 ) {
+		syslog( LOG_ERR, "Error in psql_get_fs_blocks_free, no tablespace OIDs found");
+		PQclear( res );
+		return -EIO;
+	}
+
+	nof_oids = PQntuples( res ) ;
+	if( nof_oids > MAX_TABLESPACE_OIDS ) {
+		syslog( LOG_ERR, "Error in psql_get_fs_blocks_free, too many tablespace OIDs found, increase MAX_TABLESPACE_OIDS");
+		PQclear( res );
+		return -EIO;
+	}
+	
+	for( i = 0; i < nof_oids; i++ ) {
+		data = PQgetvalue( res, i, 0 );
+		oid[i] = atoi( data );
+	}
+
+	PQclear( res );
+
+	/* we have a OID = 0 in the list, so have a look at the default
+	 * tablespace of the current database and replace the value
+	 */
+	for( i = 0; i < nof_oids; i++ ) {
+		if( oid[i] == 0 ) {
+			int res = get_default_tablespace( conn, verbose );
+			if( res < 0 ) {
+				return res;
+			}
+			oid[i] = res;
+		}
+	}
+			
+	/* Get table space locations, since 9.2 there is a function for
+	 * this, before we must hunt system tables for the information
+	 */
+	for( i = 0; i < nof_oids; i++ ) {
+		location[i] = get_tablespace_location( conn, oid[i], verbose );
+	}
+	
+	for( i = 0; i < nof_oids; i++ ) {
+		if( !location[i] ) {
+			/* No location, tablespace resides in PGDATA */
+		}
+	}
+
+	for( i = 0; i < nof_oids; i++ ) {
+		if( verbose ) {
+			syslog( LOG_DEBUG, "Free blocks calculation, seen tablespace OID %d, %s",
+				oid[i], location[i] );
+		}
+	}
+   
+	for( i = 0; i < nof_oids; i++ ) {
+		if( location[i] ) free( location[i] );
+	}
+	
+	return 9999;
 }
 
 int64_t psql_get_fs_files_used( PGconn *conn )
 {
 	PGresult *res;
 	char *data;
-	size_t used;
+	int64_t used;
 	
 	res = PQexec( conn, "SELECT COUNT(*) FROM dir" );
         if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
@@ -975,7 +1109,7 @@ int64_t psql_get_fs_files_used( PGconn *conn )
         }
 
         data = PQgetvalue( res, 0, 0 );
-        used = atoi( data );
+        used = atol( data );
 
         PQclear( res );
 
@@ -984,6 +1118,10 @@ int64_t psql_get_fs_files_used( PGconn *conn )
 
 int64_t psql_get_fs_files_free( PGconn *conn )
 {
-        return 9999;
+	/* no restriction on the number of files storable, we could
+	 * add some limits later, so we would calculate the difference
+	 * here and not in pgfuse.c.
+	 */
+        return INT64_MAX;
 }
 

@@ -100,7 +100,7 @@ size_t psql_get_block_size( PGconn *conn, const size_t block_size );
 
 int64_t psql_get_fs_blocks_used( PGconn *conn );
 
-int64_t psql_get_fs_blocks_free( PGconn *conn );
+int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose );
 
 int64_t psql_get_fs_files_used( PGconn *conn );
 

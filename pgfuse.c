@@ -953,7 +953,7 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 
 	/* blocks */
 	
-	blocks_free = psql_get_fs_blocks_free( conn );
+	blocks_free = psql_get_fs_blocks_free( conn, data->verbose );
 	if( blocks_free < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -blocks_free;
@@ -970,7 +970,7 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	
 	/* inodes */
 
-	files_free = psql_get_fs_blocks_free( conn );
+	files_free = psql_get_fs_files_free( conn );
 	if( files_free < 0 ) {
 		PSQL_ROLLBACK( conn ); RELEASE( conn );
 		return -files_free;
@@ -986,7 +986,7 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	files_avail = files_free;
 
 	if( data->verbose ) {
-		syslog( LOG_ERR, "Stats for '%s' are (%jd blocks total, %jd used, %jd free, "
+		syslog( LOG_DEBUG, "Stats for '%s' are (%jd blocks total, %jd used, %jd free, "
 			"%jd files total, %jd files used, %jd files free, thread #%u",
 			data->mountpoint, 
 			blocks_total, blocks_used, blocks_free,

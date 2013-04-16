@@ -7,6 +7,7 @@ Internal documentation for developers
       Directory tree in database
       Transaction Policies
       Self-containment
+      StatFS statistics
    Testing
    References
 
@@ -124,10 +125,71 @@ a certain timeout when the database doesn't appear again?
 EIO seems a good option (as if the disk would have temporary I/O
 problems).
 
+StatFS statistics
+-----------------
+
+Per see hard to measure, database can spawn many machines, disks, etc.
+The information about disk usage is intentionally hidden to the user!
+
+Nevertheless we can get some useable data for some scenarios, mainly
+if things run on a single machine with several partitions (or SANs).
+
+A) What to meaure?
+
+Calculate the size of:
+a) virtual things like blocks and inodes (that's the way we went)
+b) get physical disk usage data from the database directly
+
+b) Detect location of tables on disk
+
+a) environment variable PGDATA
+   Is only really set for the postgresql startup script and for the
+   account service as DBA (postgres), we should maybe not assume
+   wrong setups for normal users..
+b) standard location (probed)
+   $PGDATA/base 
+   show data_directory;
+   select setting from pg_settings where name = 'data_directory';    
+   /var/lib/postgres/data
+   ERROR:  must be superuser to examine "data_directory"
+   Can't do this, as the db user must be underprivileged:
+c) When the DBA create dedicated tablespaces, then there is no problem
+    
+This is a rough sketch of the algorithm:
+
+1) Get a list of oids containing the tablespaces of PgFuse tables and indexes
+       
+   select distinct reltablespace FROM pg_class WHERE relname in ( 'dir', 'data', 'data_dir_id_idx', 'data_block_no_idx', 'dir_parent_id_idx' );
+       
+   [0,55877]
+
+   If there is a '0' in this list, replace it with the OID of the default tablespace:
+      
+   select dattablespace from pg_database where datname=current_database();
+       
+   [55025,55877]
+
+2) Get table space locations (version dependend)
+    
+   select spclocation from pg_tablespace where oid = 55025;
+   >= 9.2  
+   select pg_tablespace_location('55025');
+      
+   ["/media/sd/test"]
+       
+   or we get nothing, in this case, the tablespace resides in PGDATA.
+   We assume nobody makes symlinks there to point to other disks! So
+   we add $PGDATA to the list of directories
+       
+3) Resolve list of pathes containing the relevant tablespaces to
+   the list of entries in /etc/mtab (getmntent_r), unique it,
+   then use 'statfs' to retrieve the data, eventually take the
+   minimum, if there are many.              
+                 
 Testing
 -------
 
-The makefile contains some basic functionallity tests (mostly using
+The makefile contains some basic functionality tests (mostly using
 commands of the shell).
 
 bonnie is a good stress and performance tester. Don't despair because

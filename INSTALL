@@ -26,10 +26,6 @@ Installation
 
     psql -U someuser somedb < schema.sql
 
-* Create special function (as PostgreSQL superuser)
-
-   psql somedb < function.sql
-    
 * Mount the FUSE filesystem
 
     pgfuse "user=someuser dbname=somedb" <mount point>

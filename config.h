@@ -35,4 +35,8 @@
 
 #define MAX_DB_CONNECTIONS	8
 
+/* maximum number of tablespaces, used for free blocks calculation */
+
+#define MAX_TABLESPACE_OIDS	16
+
 #endif
