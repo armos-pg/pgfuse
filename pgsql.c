@@ -1016,14 +1016,17 @@ static char *get_tablespace_location( PGconn *conn, const int oid, int verbose )
 	return data;
 }
 
-int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose )
+int psql_get_tablespace_locations( PGconn *conn, char **location, size_t *nof_oids, int verbose )
 {
 	PGresult *res;
 	char *data;
 	int i;
-	int nof_oids;
 	int oid[MAX_TABLESPACE_OIDS];
-	char *location[MAX_TABLESPACE_OIDS];
+	
+	if( *nof_oids > MAX_TABLESPACE_OIDS ) {
+		syslog( LOG_ERR, "Error in psql_get_fs_blocks_free, called with location array bigger than MAX_TABLESPACE_OIDS");
+		return -EIO;
+	}
 	
 	/* Get a list of oids containing the tablespaces of PgFuse tables and indexes */
 	res = PQexec( conn, "select distinct reltablespace::int4 FROM pg_class WHERE relname in ( 'dir', 'data', 'data_dir_id_idx', 'data_block_no_idx', 'dir_parent_id_idx' )" );
@@ -1041,14 +1044,14 @@ int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose )
 		return -EIO;
 	}
 
-	nof_oids = PQntuples( res ) ;
-	if( nof_oids > MAX_TABLESPACE_OIDS ) {
+	*nof_oids = PQntuples( res ) ;
+	if( *nof_oids > MAX_TABLESPACE_OIDS ) {
 		syslog( LOG_ERR, "Error in psql_get_fs_blocks_free, too many tablespace OIDs found, increase MAX_TABLESPACE_OIDS");
 		PQclear( res );
 		return -EIO;
 	}
 	
-	for( i = 0; i < nof_oids; i++ ) {
+	for( i = 0; i < *nof_oids; i++ ) {
 		data = PQgetvalue( res, i, 0 );
 		oid[i] = atoi( data );
 	}
@@ -1058,7 +1061,7 @@ int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose )
 	/* we have a OID = 0 in the list, so have a look at the default
 	 * tablespace of the current database and replace the value
 	 */
-	for( i = 0; i < nof_oids; i++ ) {
+	for( i = 0; i < *nof_oids; i++ ) {
 		if( oid[i] == 0 ) {
 			int res = get_default_tablespace( conn, verbose );
 			if( res < 0 ) {
@@ -1071,28 +1074,25 @@ int64_t psql_get_fs_blocks_free( PGconn *conn, int verbose )
 	/* Get table space locations, since 9.2 there is a function for
 	 * this, before we must hunt system tables for the information
 	 */
-	for( i = 0; i < nof_oids; i++ ) {
+	for( i = 0; i < *nof_oids; i++ ) {
 		location[i] = get_tablespace_location( conn, oid[i], verbose );
 	}
-	
-	for( i = 0; i < nof_oids; i++ ) {
+
+	/* TODO: */
+	for( i = 0; i < *nof_oids; i++ ) {
 		if( !location[i] ) {
 			/* No location, tablespace resides in PGDATA */
 		}
 	}
 
-	for( i = 0; i < nof_oids; i++ ) {
+	for( i = 0; i < *nof_oids; i++ ) {
 		if( verbose ) {
 			syslog( LOG_DEBUG, "Free blocks calculation, seen tablespace OID %d, %s",
 				oid[i], location[i] );
 		}
 	}
-   
-	for( i = 0; i < nof_oids; i++ ) {
-		if( location[i] ) free( location[i] );
-	}
 	
-	return 9999;
+	return 0;
 }
 
 int64_t psql_get_fs_files_used( PGconn *conn )
@@ -1115,13 +1115,3 @@ int64_t psql_get_fs_files_used( PGconn *conn )
 
         return used;
 }
-
-int64_t psql_get_fs_files_free( PGconn *conn )
-{
-	/* no restriction on the number of files storable, we could
-	 * add some limits later, so we would calculate the difference
-	 * here and not in pgfuse.c.
-	 */
-        return INT64_MAX;
-}
-

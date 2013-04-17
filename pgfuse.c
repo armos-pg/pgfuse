@@ -28,6 +28,8 @@
 #include <values.h>		/* for INT_MAX */
 #include <stdint.h>		/* for uint64_t */
 #include <inttypes.h>		/* for PRIxxx macros */
+#include <mntent.h>		/* for iterating mount entries */
+#include <sys/vfs.h>		/* for statfs */
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -935,11 +937,13 @@ static int pgfuse_ftruncate( const char *path, off_t offset, struct fuse_file_in
 static int pgfuse_statfs( const char *path, struct statvfs *buf )
 {
 	PgFuseData *data = (PgFuseData *)fuse_get_context( )->private_data;
-
 	PGconn *conn;
-
 	int64_t blocks_total, blocks_used, blocks_free, blocks_avail;
 	int64_t files_total, files_used, files_free, files_avail;
+	int res;
+	int i;
+	size_t nof_locations = MAX_TABLESPACE_OIDS;
+	char *location[MAX_TABLESPACE_OIDS];
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Statfs called on '%s', thread #%u",
@@ -952,17 +956,44 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
         PSQL_BEGIN( conn );
 
 	/* blocks */
-	
-	blocks_free = psql_get_fs_blocks_free( conn, data->verbose );
-	if( blocks_free < 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -blocks_free;
+
+	res = psql_get_tablespace_locations( conn, location, &nof_locations, data->verbose );
+	if( res < 0 ) {
+		return res;
 	}
+	
+	/* iterate over mount entries and try to match to the tablespace locations */
+ 
+/*
+int main(void) {
+  FILE* mtab = setmntent("/etc/mtab", "r");
+  struct mntent* m;
+  struct mntent mnt;
+  char strings[4096];
+  while ((m = getmntent_r(mtab, &mnt, strings, sizeof(strings)))) {
+    struct statfs fs;
+    if ((mnt.mnt_dir != NULL) && (statfs(mnt.mnt_dir, &fs) == 0)) {
+      unsigned long long int size = fs.f_blocks * fs.f_bsize;
+      unsigned long long int free = fs.f_bfree * fs.f_bsize;
+      unsigned long long int avail = fs.f_bavail * fs.f_bsize;
+      printf("%s %s size=%lld free=%lld avail=%lld\n",
+             mnt.mnt_fsname, mnt.mnt_dir, size, free, avail);
+    }
+  }
+
+  endmntent(mtab);
+}
+*/
+	for( i = 0; i < nof_locations; i++ ) {
+		if( location[i] ) free( location[i] );
+	}
+	
+	blocks_free = 9999;
 		
 	blocks_used = psql_get_fs_blocks_used( conn );	
 	if( blocks_used < 0 ) {
                 PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -blocks_used;
+		return blocks_used;
 	}
             
 	blocks_total = blocks_free + blocks_used;
@@ -970,16 +1001,14 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	
 	/* inodes */
 
-	files_free = psql_get_fs_files_free( conn );
-	if( files_free < 0 ) {
-		PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -files_free;
-	}
+	/* no restriction on the number of files storable, we could
+	   add some limits later */
+	files_free = INT64_MAX;
 	
 	files_used = psql_get_fs_files_used( conn );
 	if( files_used < 0 ) {
                 PSQL_ROLLBACK( conn ); RELEASE( conn );
-		return -files_used;
+		return files_used;
 	}
 	
 	files_total = files_free + files_used;
