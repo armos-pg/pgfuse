@@ -39,4 +39,12 @@
 
 #define MAX_TABLESPACE_OIDS	16
 
+/* location of the mtab file of mounted filesystems */
+
+#define MTAB_FILE		"/etc/mtab"
+
+/* size of buffer for mtab traversal */
+
+#define MTAB_BUFFER_SIZE	4096
+
 #endif

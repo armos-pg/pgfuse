@@ -944,6 +944,12 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	int i;
 	size_t nof_locations = MAX_TABLESPACE_OIDS;
 	char *location[MAX_TABLESPACE_OIDS];
+	FILE *mtab;
+	struct mntent *m;
+	struct mntent mnt;
+	char strings[MTAB_BUFFER_SIZE];
+	char *prefix;
+	int prefix_len;
 
 	if( data->verbose ) {
 		syslog( LOG_INFO, "Statfs called on '%s', thread #%u",
@@ -961,35 +967,64 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 	if( res < 0 ) {
 		return res;
 	}
+
+	blocks_free = INT64_MAX;
+	blocks_avail = INT64_MAX;
 	
 	/* iterate over mount entries and try to match to the tablespace locations */
- 
-/*
-int main(void) {
-  FILE* mtab = setmntent("/etc/mtab", "r");
-  struct mntent* m;
-  struct mntent mnt;
-  char strings[4096];
-  while ((m = getmntent_r(mtab, &mnt, strings, sizeof(strings)))) {
-    struct statfs fs;
-    if ((mnt.mnt_dir != NULL) && (statfs(mnt.mnt_dir, &fs) == 0)) {
-      unsigned long long int size = fs.f_blocks * fs.f_bsize;
-      unsigned long long int free = fs.f_bfree * fs.f_bsize;
-      unsigned long long int avail = fs.f_bavail * fs.f_bsize;
-      printf("%s %s size=%lld free=%lld avail=%lld\n",
-             mnt.mnt_fsname, mnt.mnt_dir, size, free, avail);
-    }
-  }
+	mtab = setmntent( MTAB_FILE, "r" );
+	while( ( m = getmntent_r( mtab, &mnt, strings, sizeof( strings ) ) ) != NULL ) {
+		struct statfs fs;
+		
+		/* skip filesystems without mount point */
+		if( mnt.mnt_dir == NULL ) continue;
+		
+		/* skip filesystems which are not a prefix of one of the tablespace locations */
+		prefix = NULL;
+		prefix_len = 0;
+		for( i = 0; i < nof_locations; i++ ) {
+			if( strncmp( mnt.mnt_dir, location[i], strlen( mnt.mnt_dir ) ) == 0 ) {
+				if( strlen( mnt.mnt_dir ) > prefix_len ) {
+					prefix_len = strlen( mnt.mnt_dir );
+					prefix = strdup( mnt.mnt_dir );
+					blocks_free = INT64_MAX;
+					blocks_avail = INT64_MAX;
+				}
+			}
+		}
+		if( prefix == NULL ) continue;
+		
+		/* get data of file system */
+		res = statfs( prefix, &fs );
+		if( res < 0 ) {
+			syslog( LOG_ERR, "statfs on '%s' failed: %s,  pgfuse mount point '%s', thread #%u",
+				prefix,	strerror( errno ), data->mountpoint, THREAD_ID );
+			return res;
+		}
 
-  endmntent(mtab);
-}
-*/
+		if( data->verbose ) {
+			syslog( LOG_DEBUG, "Checking mount point '%s' for free disk space, now %jd (%d), was %jd, pgfuse mount point '%s', thread #%u",
+				prefix,	fs.f_bfree, fs.f_frsize, blocks_free, data->mountpoint, THREAD_ID );
+		}
+
+		/* take the smallest available disk space free (worst case the first one
+		 * to overflow one of the tablespaces)
+		 */
+		if( fs.f_bfree * fs.f_frsize < blocks_free * data->block_size ) {
+			blocks_free = fs.f_bfree * fs.f_frsize / data->block_size;
+		}
+		if( fs.f_bavail * fs.f_frsize < blocks_avail * data->block_size ) {
+			blocks_avail = fs.f_bavail * fs.f_frsize / data->block_size;
+		}
+				
+		if( prefix ) free( prefix );
+	}
+	endmntent( mtab );
+	
 	for( i = 0; i < nof_locations; i++ ) {
 		if( location[i] ) free( location[i] );
 	}
-	
-	blocks_free = 9999;
-		
+			
 	blocks_used = psql_get_fs_blocks_used( conn );	
 	if( blocks_used < 0 ) {
                 PSQL_ROLLBACK( conn ); RELEASE( conn );
@@ -1025,7 +1060,8 @@ int main(void) {
 	
 	/* fill statfs structure */
 	
-	/* Note: f_frsize, f_favail, f_fsid and f_flag are currently ignored by FUSE */
+	/* Note: blocks have to be retrning as units of f_frsize
+	 * f_favail, f_fsid and f_flag are currently ignored by FUSE ? */
 	buf->f_bsize = data->block_size;
 	buf->f_frsize = data->block_size;
 	buf->f_blocks = blocks_total;
