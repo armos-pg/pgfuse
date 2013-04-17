@@ -984,6 +984,48 @@ static int get_default_tablespace( PGconn *conn, int verbose )
 	return oid;
 }
 
+static char *get_data_directory( PGconn *conn )
+{
+	PGresult *res;
+	char *data;
+
+	/* in the questionable case we have super user rights we
+	 * can ask the server for the default path */
+	res = PQexec( conn, "select setting from pg_settings where name = 'data_directory'" );
+	
+	if( PQresultStatus( res ) != PGRES_TUPLES_OK ) {
+		syslog( LOG_ERR, "Error getting data_directory: %s", PQerrorMessage( conn ) );
+		PQclear( res );
+		return NULL;
+	}
+
+	/* No permissions results in an empty result set */
+	if( PQntuples( res ) == 0 ) {
+		PQclear( res );
+
+		/* No location, tablespace resides in PGDATA,
+		 * usually it lies in /var/lib/postgres, 
+		 * /var/lib/postgresql,
+		 * /var/lib/pgsql or  /var/lib/postgresql/9.1/main
+		 */
+#ifdef __linux__
+		data = strdup( "/var/lib/postgres" );
+#else
+		/* TODO, but usually BSD stores it on /usr/local, MacOs
+		 * would be different, but there a lot else is also different..
+		 */
+		data = strdup( "/usr/local" );
+#endif
+		return data;
+	}
+
+	data = strdup( PQgetvalue( res, 0, 0 ) );
+
+	PQclear( res );
+	
+	return data;
+}
+
 static char *get_tablespace_location( PGconn *conn, const int oid, int verbose )
 {
 	PGresult *res;
@@ -1012,6 +1054,12 @@ static char *get_tablespace_location( PGconn *conn, const int oid, int verbose )
 	data = strdup( PQgetvalue( res, 0, 0 ) );
 
 	PQclear( res );
+
+	/* no direct information in the catalog about the table space location, try
+	 * other means */
+	if( strcmp( data, "" ) == 0 ) {
+		data = get_data_directory( conn );
+	}
 	
 	return data;
 }
@@ -1076,13 +1124,6 @@ int psql_get_tablespace_locations( PGconn *conn, char **location, size_t *nof_oi
 	 */
 	for( i = 0; i < *nof_oids; i++ ) {
 		location[i] = get_tablespace_location( conn, oid[i], verbose );
-	}
-
-	/* TODO: */
-	for( i = 0; i < *nof_oids; i++ ) {
-		if( !location[i] ) {
-			/* No location, tablespace resides in PGDATA */
-		}
 	}
 
 	for( i = 0; i < *nof_oids; i++ ) {

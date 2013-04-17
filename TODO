@@ -1,8 +1,10 @@
 TODO list (in order of priority)
 ---------
 
-- integrate statfs patch:
-  - no Perl, Shell, Posix df dependency
+- integrate statfs patch
+  - find alteratives way to determine PGDATA at runtime (by NOT
+    asking the Postgresql server)
+  - find a way to calculate PGDATA while compiling
 - handling of most file system metadata
   - ownership: how is this done depending on
     per-user or root mounts? think about security

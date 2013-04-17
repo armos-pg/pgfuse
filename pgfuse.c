@@ -30,6 +30,7 @@
 #include <inttypes.h>		/* for PRIxxx macros */
 #include <mntent.h>		/* for iterating mount entries */
 #include <sys/vfs.h>		/* for statfs */
+#include <limits.h>
 
 #include <fuse.h>		/* for user-land filesystem */
 #include <fuse_opt.h>		/* fuse command line parser */
@@ -968,6 +969,20 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 		return res;
 	}
 
+	/* transform them and especially resolve symlinks */
+	for( i = 0; i < nof_locations; i++ ) {
+		char *old_path = location[i];
+		char *new_path = realpath( old_path, NULL );
+		if( new_path == NULL ) {
+			/* do nothing, most likely a permission problem */
+			syslog( LOG_ERR, "realpath for '%s' failed: %s,  pgfuse mount point '%s', thread #%u",
+				old_path, strerror( errno ), data->mountpoint, THREAD_ID );
+		} else {
+			location[i] = new_path;
+			free( old_path );
+		}
+	}
+	
 	blocks_free = INT64_MAX;
 	blocks_avail = INT64_MAX;
 	

@@ -140,7 +140,7 @@ Calculate the size of:
 a) virtual things like blocks and inodes (that's the way we went)
 b) get physical disk usage data from the database directly
 
-b) Detect location of tables on disk
+B) Detect location of tables on disk
 
 a) environment variable PGDATA
    Is only really set for the postgresql startup script and for the
@@ -153,7 +153,9 @@ b) standard location (probed)
    /var/lib/postgres/data
    ERROR:  must be superuser to examine "data_directory"
    Can't do this, as the db user must be underprivileged:
-c) When the DBA create dedicated tablespaces, then there is no problem
+   ArchLinux: /var/lib/postgres
+   Centos/RHEL/Fedora: /var/lib/pgsql
+   Debian/Ubuntu: /var/lib/postgresql/9.1/main (/var/lib/postgresql should be fine)
     
 This is a rough sketch of the algorithm:
 
