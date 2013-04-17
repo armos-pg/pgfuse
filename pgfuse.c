@@ -1031,8 +1031,8 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 		return blocks_used;
 	}
             
-	blocks_total = blocks_free + blocks_used;
-	blocks_avail = blocks_free;
+	blocks_total = blocks_avail + blocks_used;
+	blocks_free = blocks_avail;
 	
 	/* inodes */
 

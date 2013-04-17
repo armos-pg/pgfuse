@@ -24,12 +24,12 @@ CREATE TABLE data (
 );
 
 -- create indexes for fast data access
-CREATE INDEX data_dir_id_idx ON data( dir_id ) tablespace test2;
-CREATE INDEX data_block_no_idx ON data( block_no ) tablespace test2;
+CREATE INDEX data_dir_id_idx ON data( dir_id );
+CREATE INDEX data_block_no_idx ON data( block_no );
 
 -- create an index on the parent_id for
 -- directory listings
-CREATE INDEX dir_parent_id_idx ON dir( parent_id ) tablespace test2;
+CREATE INDEX dir_parent_id_idx ON dir( parent_id );
 
 -- 16384 == S_IFDIR (S_IFDIR)
 -- TODO: should be created by the program after checking the OS
