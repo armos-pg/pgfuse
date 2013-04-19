@@ -1018,7 +1018,7 @@ static int pgfuse_statfs( const char *path, struct statvfs *buf )
 		}
 
 		if( data->verbose ) {
-			syslog( LOG_DEBUG, "Checking mount point '%s' for free disk space, now %jd (%d), was %jd, pgfuse mount point '%s', thread #%u",
+			syslog( LOG_DEBUG, "Checking mount point '%s' for free disk space, now %jd (%jd), was %jd, pgfuse mount point '%s', thread #%u",
 				prefix,	fs.f_bfree, fs.f_frsize, blocks_free, data->mountpoint, THREAD_ID );
 		}
 
